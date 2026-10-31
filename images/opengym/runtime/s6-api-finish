@@ -1,0 +1,4 @@
+#!/bin/sh
+# Called by s6-supervise every time the api process dies: exit code and signal are
+# forwarded to the shared crash policy (count, back off, escalate on a crash loop).
+exec /usr/libexec/opengym/finish-policy.sh api "$@"

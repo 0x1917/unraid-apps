@@ -1,0 +1,114 @@
+# Build, smoke-test and publish the opengym image to Docker Hub.
+#
+# Version comes from `ARG OPENGYM_VERSION` in the Dockerfile, tagged exactly as
+# upstream releases it. Publishes two tags: the version and `latest`.
+#
+# Secrets (repo Settings → Secrets and variables → Actions):
+#   DOCKERHUB_TOKEN     Docker Hub access token (user 0x1917)
+# Pull requests build and smoke-test but never push.
+
+name: opengym
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - images/opengym/**
+      - .github/workflows/opengym.yml
+  pull_request:
+    paths:
+      - images/opengym/**
+      - .github/workflows/opengym.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: 0x1917/opengym
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version and base image from the Dockerfile
+        id: meta
+        run: |
+          VER=$(grep -m1 '^ARG OPENGYM_VERSION=' images/opengym/Dockerfile | cut -d= -f2)
+          BASE=$(grep -m1 '^ARG NODE_IMAGE=' images/opengym/Dockerfile | cut -d= -f2)
+          test -n "$VER" && test -n "$BASE"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          # git-formatted (%cI) so the value is always well-formed — never
+          # interpolate commit metadata into `with:` blocks directly.
+          echo "build_date=$(git log -1 --format=%cI)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Resolve base image digest
+        id: digest
+        run: echo "base_digest=$(docker buildx imagetools inspect ${{ steps.meta.outputs.base }} --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: "0x1917"
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build (load for smoke test)
+        uses: docker/build-push-action@v6
+        with:
+          context: images/opengym
+          load: true
+          tags: opengym:test
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ steps.meta.outputs.build_date }}
+            BASE_DIGEST=${{ steps.digest.outputs.base_digest }}
+
+      - name: Smoke test
+        run: |
+          set -e
+          docker run -d --name opengym-smoke --network none opengym:test
+          for i in $(seq 1 30); do
+            s=$(docker inspect opengym-smoke --format '{{.State.Health.Status}}')
+            [ "$s" = healthy ] && break
+            [ "$i" = 30 ] && { docker logs opengym-smoke; exit 1; }
+            sleep 2
+          done
+          docker exec opengym-smoke wget -qO- http://127.0.0.1/api/health | grep -q '"ok":true'
+          # npm must be deleted from the image
+          ! docker exec opengym-smoke test -e /usr/local/bin/npm
+          # the API must not run as root
+          docker top opengym-smoke | grep 'node server.js' | grep -qv '^root'
+          docker stop opengym-smoke
+
+      - name: Push (version + latest)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: images/opengym
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          cache-from: |
+            type=registry,ref=${{ env.IMAGE }}:buildcache
+            type=registry,ref=${{ env.IMAGE }}:latest
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ steps.meta.outputs.build_date }}
+            BASE_DIGEST=${{ steps.digest.outputs.base_digest }}
+
+      - name: Verify both tags carry the same digest
+        if: github.event_name != 'pull_request'
+        run: |
+          v=$(docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }} --format '{{.Manifest.Digest}}')
+          l=$(docker buildx imagetools inspect ${{ env.IMAGE }}:latest --format '{{.Manifest.Digest}}')
+          echo "version: $v"; echo "latest:  $l"
+          [ "$v" = "$l" ]
