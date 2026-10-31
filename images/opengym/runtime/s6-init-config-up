@@ -1,0 +1,3 @@
+# s6-rc oneshot `up` files are EXECLINE command lines, not shell scripts (that is
+# why the work lives in a #!/bin/sh script and this file only starts it).
+/bin/sh /usr/libexec/opengym/init-config.sh

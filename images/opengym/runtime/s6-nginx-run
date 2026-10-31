@@ -1,0 +1,42 @@
+#!/bin/sh
+# nginx: serves the SPA, the exercise media and proxies /api to the api service on
+# 127.0.0.1. Runs unprivileged (the `nginx` account): the config written for it has
+# no `user` directive and keeps pid/temp state under /run/nginx. `daemon off` keeps
+# the master in the foreground.
+#
+# Why the fifo relay: nginx logs by OPENING A PATH, and the only log paths that
+# reach `docker logs` on this runtime are /dev/stdout and /dev/stderr — magic links
+# into /proc/self/fd. A privilege-dropped process cannot re-open those: the
+# container's log stream is a root-owned fifo and the magic link refuses the open
+# (`echo > /dev/stdout` as a dropped user fails the same way in stock alpine, with
+# the fifo even at 0666). So nginx writes to /run/nginx/log.pipe — an ordinary fifo
+# created by the boot init, mode 0666 — and this script reads it with `cat` and
+# writes every line to the service's OWN inherited stdout, which needs no re-open.
+# nginx stays the foreground process, so its exit code is this script's exit code
+# and the finish policy sees a crashed nginx, not a crashed wrapper.
+LOG_PIPE=/run/nginx/log.pipe
+cat "$LOG_PIPE" &
+relay=$!
+# nginx runs as a background child with TERM forwarded to it. s6-supervise signals
+# THIS script (its direct child), and busybox sh does not forward signals to a
+# foreground child — without the trap, a service stop would kill only the script
+# and orphan nginx, which would then hold the listen port while s6 restarts the
+# script into a bind conflict.
+s6-setuidgid nginx nginx -c /etc/nginx/nginx.conf -g 'daemon off;' &
+nginx_pid=$!
+stopped=0
+trap 'stopped=1; kill -TERM "$nginx_pid" 2>/dev/null' TERM
+wait "$nginx_pid" 2>/dev/null
+rc=$?
+# A trapped TERM interrupts the first wait with a >128 status before nginx has
+# exited; the second wait reaps it. The exit code is discarded either way: a
+# forwarded stop must look like a signal death, not a crash.
+[ "$stopped" -eq 1 ] && wait "$nginx_pid" 2>/dev/null
+kill "$relay" 2>/dev/null
+if [ "$stopped" -eq 1 ]; then
+  # Die by the same signal s6 sent, so s6-supervise and the finish policy see a
+  # deliberate stop (signal 15), not a crash with a made-up exit code.
+  trap - TERM
+  kill -TERM "$$" 2>/dev/null
+fi
+exit "$rc"

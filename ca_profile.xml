@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommunityApplications>
+  <Profile>Custom Docker images, dockerMan templates, and plugins for Unraid.</Profile>
+  <WebPage>https://github.com/0x1917/unraid-apps</WebPage>
+  <Forum>https://forums.unraid.net/profile/297753-0x1917/</Forum>
+  <Icon>https://raw.githubusercontent.com/0x1917/unraid-apps/main/icon.png</Icon>
+  <DonateLink>https://buymeacoffee.com/0x1917</DonateLink>
+  <DonateText>Appreciate my work? Show your support.</DonateText>
+</CommunityApplications>
