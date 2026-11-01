@@ -11,7 +11,7 @@
 
 # Version pin for the upstream checkout. Rebuilds are reproducible against this tag.
 ARG OPENGYM_VERSION=v1.4.3
-# The node version upstream's own Dockerfiles (header links) build and test against.
+# The node version upstream's own Dockerfiles (header links) build and test against
 ARG NODE_IMAGE=node:22.23.4-alpine
 
 # -- SRC --------------------------------------------------------------------
