@@ -1,6 +1,6 @@
 # unraid-apps
 
-Custom Docker images, Unraid dockerMan templates, and plugins.
+Custom Docker images, container templates, and plugins for Unraid.
 
 ## Layout
 
