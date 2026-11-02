@@ -122,10 +122,14 @@ What matters:
   `docker push`. No second build, so published layers cannot differ from the
   verified ones.
 - **Two tags per release:** `0x1917/opengym:<ver>` and `:latest`.
-- **Publishing is gated on the image inputs.** A workflow-only push still builds
-  and smokes but publishes nothing. Everything under `images/opengym/` counts as
-  a build input except the CI scripts and this README, so a new file defaults to
-  publishing rather than silently skipping.
+- **Publishing is gated on the image inputs.** A push that changes no build input
+  still builds and smokes but publishes nothing. Everything under
+  `images/opengym/` counts as a build input except the CI scripts and this
+  README, so a new file defaults to publishing rather than silently skipping.
+  Credentials follow the same flag: the Hub login and the registry cache export
+  both run only when this push publishes. A non-publishing push exports no cache,
+  because its inputs did not change and `cache-from` already supplies every
+  layer. Gating the login alone is what 401'd those pushes once.
 - `timeout-minutes: 25`: a hung build fails instead of burning the 6 h default.
 - `concurrency: opengym-<ref>` with `cancel-in-progress: false`: two quick pushes
   cannot race `:latest` or the source tag.
