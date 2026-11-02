@@ -40,7 +40,7 @@ jobs:
     # (pull + build + smoke + push) runs in ~3 min when healthy.
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The scope check below diffs github.event.before against HEAD.
           fetch-depth: 0
