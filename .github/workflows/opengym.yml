@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # write = push the opengym-<ver> tag after publishing
 
 env:
   IMAGE: 0x1917/opengym
@@ -112,3 +112,18 @@ jobs:
           l=$(docker buildx imagetools inspect ${{ env.IMAGE }}:latest --format '{{.Manifest.Digest}}')
           echo "version: $v"; echo "latest:  $l"
           [ "$v" = "$l" ]
+
+      # Tag the source state that published this version. The tag is created
+      # once and never moved: a re-run of the same version leaves the existing
+      # tag pointing at the first commit that shipped it.
+      - name: Tag the published source state
+        if: github.event_name != 'pull_request'
+        run: |
+          TAG=opengym-${{ steps.meta.outputs.version }}
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "tag $TAG already exists — leaving it untouched"; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Source state published as ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}"
+          git push origin "refs/tags/$TAG"
