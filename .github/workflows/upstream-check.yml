@@ -40,7 +40,7 @@ jobs:
         if: steps.check.outputs.update_available != 'true'
         run: echo "no newer release — ${{ steps.check.outputs.reason }}"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
         if: steps.check.outputs.update_available == 'true'
 
       - name: Apply the update
