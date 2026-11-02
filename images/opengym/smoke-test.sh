@@ -73,6 +73,16 @@ pass "npm absent from the image"
 if docker top "$NAME" | grep 'node server.js' | grep -q '^root'; then die "API runs as root"; fi
 pass "API does not run as root"
 
+# Licence texts must travel with the image: a dropped COPY builds and boots
+# fine, so nothing else in this gate would notice their absence.
+docker exec "$NAME" sh -c 'test -s /usr/share/opengym/LICENSE && test -s /usr/share/opengym/NOTICE.md' \
+  || die "licence files missing from the image"
+docker exec "$NAME" sh -c 'head -c 200 /usr/share/opengym/LICENSE' \
+  | grep -q 'GNU AFFERO GENERAL PUBLIC LICENSE' || die "LICENSE is not the AGPL text"
+docker exec "$NAME" grep -q 'Gym visual' /usr/share/opengym/NOTICE.md \
+  || die "NOTICE.md lacks the media terms"
+pass "licence texts ship in the image (AGPL + third-party notice)"
+
 req GET /api/config | grep -q '"password_login":true' || die "password_login flag"
 pass "PASSWORD_LOGIN reaches the config endpoint"
 

@@ -97,8 +97,14 @@ except `ALLOW_GUEST` and `AUDIT_LOG`, which default `on` and take
 - **Both services unprivileged.** API as uid 99 (group `users`, Unraid's
   appdata convention), nginx as the distro `nginx` account — only the API can
   read `/data`.
+- **Licence texts ship inside the image** at `/usr/share/opengym/`: the AGPL
+  text (`LICENSE`, byte-identical to the repo root) and upstream's third-party
+  notice (`NOTICE.md`). The image redistributes upstream's build *and* the Gym
+  visual exercise media, which upstream licenses separately from the AGPL, so
+  the notice is a condition of carrying that media, not a formality.
 - **Built from upstream's published images**, one `UPSTREAM_VERSION` variable
   driving both refs. No source clone and no `npm ci` at build: the app is
   upstream's byte for byte. A version bump is one edit to that ARG (preflight
-  checks both refs still derive from it). The CSP is taken from the web image at
+  checks both refs still derive from it); `NOTICE.md` is re-vendored from the new
+  tag's `NOTICE.md` in the same edit. The CSP is taken from the web image at
   build time, so the inline-script hash never needs hand-syncing.

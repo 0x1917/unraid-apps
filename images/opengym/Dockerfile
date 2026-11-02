@@ -127,6 +127,14 @@ COPY --from=web /etc/nginx/templates/default.conf.template /etc/nginx/templates/
 COPY --from=web /docker-entrypoint.d/05-check-base-path.sh /usr/libexec/opengym/05-check-base-path.sh
 COPY --from=web /tmp/opengym-csp /etc/opengym/content-security-policy
 
+# Licence texts travel WITH the image: it redistributes upstream's AGPL build and
+# the Gym visual exercise media, which upstream licenses separately from the AGPL
+# ("provided strictly for use within the openGym application"). Both files are
+# vendored into this build context — LICENSE is byte-identical to the repo root,
+# NOTICE.md is upstream's third-party notice at the pinned release — because the
+# build context is images/opengym/, not the repo root.
+COPY LICENSE NOTICE.md /usr/share/opengym/
+
 # Our own files. RUN cannot read the build context — it executes in the image's
 # filesystem — so the files are staged in with COPY first, then installed at
 # their target paths (the recipe stays the single place that says where each
