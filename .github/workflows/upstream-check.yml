@@ -1,17 +1,12 @@
 # Watch both upstreams this image depends on for NEWER releases, and open a pull
 # request when one exists AND a build from it passes the smoke gate.
 #
-#   * openGym's published images (ghcr.io/duartesantos8/opengym-api) — the
+#   * OpenGym's published images (ghcr.io/duartesantos8/opengym-api): the
 #     release ARG UPSTREAM_VERSION carries
-#   * s6-overlay (pid 1 + supervisor) — ARG S6_OVERLAY_VERSION and the four
+#   * s6-overlay (pid 1 + supervisor): ARG S6_OVERLAY_VERSION and the four
 #     sha256 values for the tarballs the Dockerfile downloads
 #
-# Why a PR and not an auto-publish: moving the app to a new release deserves a
-# human look at upstream's release notes. Merging this PR is the publish
-# trigger — the existing opengym workflow then builds, tests and pushes
-# X.Y.Z + latest.
-#
-# The build and smoke test run HERE, before the PR exists. A PR opened with the
+# The build and smoke test run here, before the PR exists. A PR opened with the
 # repository's GITHUB_TOKEN does not start other workflow runs (deliberate, to
 # stop recursion), so the `on: pull_request` job will not appear on it; the
 # evidence is this run's log and the PR body.
@@ -52,7 +47,7 @@ jobs:
         if: steps.check.outputs.update_available == 'true'
         run: |
           bash images/opengym/scripts/upstream-check.sh apply \
-            "${{ steps.check.outputs.app_latest }}" \
+            "${{ steps.check.outputs.app_latest }}"           \
             "${{ steps.check.outputs.s6_latest }}"
 
       - name: Build the updated tree
@@ -61,10 +56,10 @@ jobs:
           set -euo pipefail
           API="ghcr.io/duartesantos8/opengym-api:${{ steps.check.outputs.app_latest }}"
           DIGEST=$(docker buildx imagetools inspect "$API" --format '{{.Manifest.Digest}}')
-          docker build -t opengym:test \
-            --build-arg VCS_REF="$GITHUB_SHA" \
+          docker build -t opengym:test                          \
+            --build-arg VCS_REF="$GITHUB_SHA"                   \
             --build-arg BUILD_DATE="$(git log -1 --format=%cI)" \
-            --build-arg BASE_DIGEST="$DIGEST" \
+            --build-arg BASE_DIGEST="$DIGEST"                   \
             images/opengym
 
       - name: Smoke test the updated tree

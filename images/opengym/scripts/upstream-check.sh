@@ -5,9 +5,9 @@
 #   scripts/upstream-check.sh apply <app> <s6>    # rewrite the pin(s)
 #
 # Two upstreams are tracked:
-#   * openGym's published images (ghcr.io/duartesantos8/opengym-api) — the
+#   * OpenGym's published images (ghcr.io/duartesantos8/opengym-api): the
 #     release ARG UPSTREAM_VERSION carries
-#   * s6-overlay (github.com/just-containers/s6-overlay) — ARG
+#   * s6-overlay (github.com/just-containers/s6-overlay): ARG
 #     S6_OVERLAY_VERSION plus the four sha256 values for the tarballs this
 #     image downloads
 #

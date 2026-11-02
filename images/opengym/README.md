@@ -168,12 +168,12 @@ mismatched.
 placeholder for the form, not a default: the published version is whatever
 `ARG UPSTREAM_VERSION` says.
 
-| Thing                                 | Form                                      | Example                 |
-| ------------------------------------- | ----------------------------------------- | ----------------------- |
-| upstream image tag                | bare semver (upstream's own convention)     | `opengym-api:<ver>`     |
-| this repo's Hub tag               | bare semver, same as upstream               | `0x1917/opengym:<ver>`  |
-| OCI `image.version` label         | bare semver                                 | `<ver>`                 |
-| git tag (CI)                      | `opengym-` + `v` + version; rebuilds get `-<n>` | `opengym-v<ver>`    |
+| Thing                                 | Form                                            | Example                 |
+| ------------------------------------- | ----------------------------------------------- | ----------------------- |
+| upstream image tag                    | bare semver (upstream's own convention)         | `opengym-api:<ver>`     |
+| this repo's Hub tag                   | bare semver, same as upstream                   | `0x1917/opengym:<ver>`  |
+| OCI `image.version` label             | bare semver                                     | `<ver>`                 |
+| git tag (CI)                          | `opengym-` + `v` + version; rebuilds get `-<n>` | `opengym-v<ver>`        |
 
 ### Update checklist
 
