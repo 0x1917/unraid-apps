@@ -26,12 +26,21 @@ on:
 permissions:
   contents: write   # write = push the opengym-<ver> tag after publishing
 
+# One run at a time per ref: two pushes in quick succession would otherwise
+# race the :latest tag and the source-tag step.
+concurrency:
+  group: opengym-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   IMAGE: 0x1917/opengym
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # A hung buildx step otherwise burns the 6 h default; the whole job
+    # (pull + build + smoke + push) runs in ~3 min when healthy.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -68,38 +77,6 @@ jobs:
           context: images/opengym
           load: true
           tags: opengym:test
-          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
-          build-args: |
-            VCS_REF=${{ github.sha }}
-            BUILD_DATE=${{ steps.meta.outputs.build_date }}
-            BASE_DIGEST=${{ steps.digest.outputs.base_digest }}
-
-      - name: Smoke test
-        run: |
-          set -e
-          docker run -d --name opengym-smoke --network none opengym:test
-          for i in $(seq 1 30); do
-            s=$(docker inspect opengym-smoke --format '{{.State.Health.Status}}')
-            [ "$s" = healthy ] && break
-            [ "$i" = 30 ] && { docker logs opengym-smoke; exit 1; }
-            sleep 2
-          done
-          docker exec opengym-smoke wget -qO- http://127.0.0.1/api/health | grep -q '"ok":true'
-          # npm must be deleted from the image
-          ! docker exec opengym-smoke test -e /usr/local/bin/npm
-          # the API must not run as root
-          docker top opengym-smoke | grep 'node server.js' | grep -qv '^root'
-          docker stop opengym-smoke
-
-      - name: Push (version + latest)
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v6
-        with:
-          context: images/opengym
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
-            ${{ env.IMAGE }}:latest
           cache-from: |
             type=registry,ref=${{ env.IMAGE }}:buildcache
             type=registry,ref=${{ env.IMAGE }}:latest
@@ -108,6 +85,22 @@ jobs:
             VCS_REF=${{ github.sha }}
             BUILD_DATE=${{ steps.meta.outputs.build_date }}
             BASE_DIGEST=${{ steps.digest.outputs.base_digest }}
+
+      - name: Smoke test
+        run: bash images/opengym/smoke-test.sh opengym:test
+
+      # Publish the image the smoke test just ran against: retag, then push.
+      # There is no second build, so what ships cannot differ from what was
+      # verified (same image ID, same layers).
+      - name: Push the tested image (version + latest)
+        if: github.event_name != 'pull_request'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          docker tag opengym:test "$IMAGE:$VERSION"
+          docker tag opengym:test "$IMAGE:latest"
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:latest"
 
       - name: Verify both tags carry the same digest
         if: github.event_name != 'pull_request'

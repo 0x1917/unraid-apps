@@ -46,6 +46,15 @@ tar -C images/opengym -cf - . | ssh root@<docker-host> "
     /tmp/opengym"
 ```
 
+`images/opengym/smoke-test.sh <image>` is the gate CI runs: boots the image on a
+spare port with a throwaway data dir and checks health, the CSP header, exercise
+media, `PASSWORD_LOGIN`, password signup + session, first-user admin, a state
+write through the proxy, `/data` ownership `99:100`, a zero exit on
+`docker stop`, session+data survival across container replacement (with
+`BASE_PATH=/gym`), and that an invalid `BASE_PATH` is refused at boot. Needs
+docker, curl, jq, openssl; ~40 s. CI publishes the image it tested — retagged,
+never rebuilt.
+
 ## Environment
 
 The deploy-time variables — the same fields the Unraid template exposes:
