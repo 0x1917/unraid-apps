@@ -74,18 +74,18 @@ docker build -t opengym:try                                              \
 
 `<ver>` is the upstream release tag, no leading `v`, matching upstream's own
 image tags. Override **both** refs together: nothing in the Dockerfile
-cross-checks that the API and web tags are the same release. For a real bump,
+cross-checks that the API and web tags are the same release. For a real update,
 edit the ARG instead — see Version management.
 
 ## Test
 
-`images/opengym/smoke-test.sh <image>` is the gate CI runs, and it runs anywhere
-Docker does. It boots the image on a free loopback port with a throwaway data
-dir, and fails on the first broken expectation. ~40s; needs `docker`, `curl`,
-`jq`, `openssl`.
+`images/opengym/scripts/smoke-test.sh <image>` is the gate CI runs, and it runs
+anywhere Docker does. It boots the image on a free loopback port with a throwaway
+data dir, and fails on the first broken expectation. ~40s; needs `docker`,
+`curl`, `jq`, `openssl`.
 
 ```sh
-bash images/opengym/smoke-test.sh opengym:test
+bash images/opengym/scripts/smoke-test.sh opengym:test
 ```
 
 What it proves:
@@ -129,33 +129,56 @@ Properties that matter:
 - **The published image is the tested image.** CI builds once, tests that image,
   then `docker tag` + `docker push` it. There is no second build, so published
   layers cannot differ from verified ones.
-- **Two tags per release:** `0x1917/opengym:v<ver>` and `:latest`.
+- **Two tags per release:** `0x1917/opengym:<ver>` and `:latest`.
 - `timeout-minutes: 25` — a hung build fails the job instead of burning the 6h
   default.
 - `concurrency: opengym-<ref>` with `cancel-in-progress: false` — two quick
   pushes cannot race `:latest` or the source tag.
-- Dependabot (`.github/dependabot.yml`) opens weekly PRs for major-version bumps
+- Dependabot (`.github/dependabot.yml`) opens weekly PRs for major-version updates
   of the four actions the workflow uses. Patch/minor arrive through the major
   tags already.
+
+### Upstream releases
+
+`.github/workflows/upstream-check.yml` runs daily (and on demand) against two
+upstreams: openGym's published images (`ARG UPSTREAM_VERSION`) and s6-overlay
+(`ARG S6_OVERLAY_VERSION` plus the four tarball checksums, re-read from the
+release's own `.sha256` assets). The logic lives in
+`images/opengym/scripts/upstream-check.sh` (`check` / `apply`), which also runs
+by hand — it needs only `curl` and `jq`. When something newer exists, it updates
+the ARGs, re-vendors `NOTICE.md`, **builds and runs the smoke gate**, and only
+then opens a PR. Nothing publishes until that PR is merged.
+
+Two things worth knowing:
+
+- A PR opened with the built-in `GITHUB_TOKEN` does not trigger other workflow
+  runs, so the `opengym` CI will not appear on it. The build and smoke evidence
+  is in the check run's log and in the PR body.
+- The branch name carries the date and both versions, so a re-run on the same
+  day is a no-op while the PR is open. Close it unmerged and the next run
+  proposes it again.
 
 ## Version management
 
 `ARG UPSTREAM_VERSION` in the Dockerfile is the single source of truth. Both
-image refs derive from it, so a bump is one edit that cannot leave the pair
+image refs derive from it, so an update is one edit that cannot leave the pair
 mismatched.
 
-`<ver>` below stands for an upstream release tag such as `X.Y.Z`. It is a
-placeholder for the *form*; no version is baked into this file as a default —
-the image's version is whatever `ARG UPSTREAM_VERSION` says.
+`<ver>` below stands for an upstream release tag such as `X.Y.Z` — a
+placeholder for the form, not a default: the published version is whatever
+`ARG UPSTREAM_VERSION` says.
 
-| Thing                                 | Form                               | Example                 |
-| ------------------------------------- | ---------------------------------- | ----------------------- |
-| upstream image tag                    | no `v` (upstream's own convention) | `opengym-api:<ver>`     |
-| this repo's Hub tag                   | `v` prefix                         | `0x1917/opengym:v<ver>` |
-| OCI `image.version` label             | `v` prefix                         | `v<ver>`                |
-| git source tag (CI, once per version) | `opengym-` + v-version             | `opengym-v<ver>`        |
+| Thing                                 | Form                                      | Example                 |
+| ------------------------------------- | ----------------------------------------- | ----------------------- |
+| upstream image tag                | bare semver (upstream's own convention)     | `opengym-api:<ver>`     |
+| this repo's Hub tag               | bare semver, same as upstream               | `0x1917/opengym:<ver>`  |
+| OCI `image.version` label         | bare semver                                 | `<ver>`                 |
+| git tag (CI)                      | `opengym-` + `v` + version; rebuilds get `-<n>` | `opengym-v<ver>`    |
 
-### Bump checklist
+### Update checklist
+
+The daily release check does steps 1 to 4 for you and opens a PR; merging that
+PR is step 5. By hand:
 
 1. Read upstream's release notes; confirm both image tags exist:
    `docker buildx imagetools inspect ghcr.io/duartesantos8/opengym-web:<ver>`.
@@ -164,21 +187,23 @@ the image's version is whatever `ARG UPSTREAM_VERSION` says.
    (`git -C <upstream clone> show v<ver>:NOTICE.md > images/opengym/NOTICE.md`);
    re-copy `LICENSE` if upstream changed it.
 4. Build and run `smoke-test.sh` locally.
-5. Commit and push to `master` → CI publishes `v<ver>` + `latest`.
+5. Commit and push to `master` → CI publishes `<ver>` + `latest`.
 6. Recreate the container on Unraid (Docker tab → Edit → Apply, or
    `docker pull && docker stop/rm/run`).
 
 ### Caveats
 
-- **Republishing a version overwrites that Docker Hub tag silently.** The git
-  source tag `opengym-v<ver>` is created once and never moved, so after a
-  same-version republish the tag describes the earlier build while the Hub image
-  holds the newer one. Bump the version if that matters.
-- **Rollback** is a previous version tag (`0x1917/opengym:v<ver>`) or a local
+- **A rebuild reuses the release tag on Docker Hub** (`<ver>` is overwritten;
+  Hub tags are mutable), but the git side no longer lies: the first publish of a
+  release gets `opengym-v<ver>` and every rebuild gets `opengym-v<ver>-<n>`
+  (numbered from the remote's tags), so each published image has its own commit
+  tag. The image labels (`image.created`, `image.revision`) still tell two
+  builds of one release apart inside the registry.
+- **Rollback** is a previous release tag (`0x1917/opengym:<ver>`) or a local
   image; old tags are not deleted.
 - **The media is not AGPL.** Upstream's notice permits a non-commercial openGym
   fork to carry the unmodified 180 px exercise media *with the notice*, which is
-  why `NOTICE.md` ships inside the image and is re-vendored on every bump.
+  why `NOTICE.md` ships inside the image and is re-vendored on every release update.
 
 ## Environment
 
@@ -226,5 +251,5 @@ The deploy-time variables — the same fields the Unraid template exposes:
 - **Built from upstream's published images**, one `UPSTREAM_VERSION` variable
   driving both refs. The app is upstream's byte for byte; the CSP is taken from
   the web image at build time, so the inline-script hash never needs
-  hand-syncing, and `NOTICE.md` is re-vendored on every bump (see Version
+  hand-syncing, and `NOTICE.md` is re-vendored on every release update (see Version
   management).

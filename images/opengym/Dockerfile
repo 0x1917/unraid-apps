@@ -13,11 +13,12 @@
 
 # The upstream release this image is built from. Upstream publishes semver
 # image tags without a `v` (1.4.3, 1.4, latest, edge); the git release of the
-# same version is v1.4.3, which is what the links above use.
+# same version is v1.4.3, which is what the links above use. Our own image tag
+# is the same bare release; only the git tag carries the `v`.
 ARG UPSTREAM_VERSION=1.4.3
 
 # The two images this build starts from. Both refs derive from UPSTREAM_VERSION:
-# bumping the release is one edit and the pair cannot drift apart. `--build-arg`
+# moving the release is one edit and the pair cannot drift apart. `--build-arg`
 # can still override either ref for a one-off build of a specific digest.
 ARG OPENGYM_API_IMAGE=ghcr.io/duartesantos8/opengym-api:${UPSTREAM_VERSION}
 ARG OPENGYM_WEB_IMAGE=ghcr.io/duartesantos8/opengym-web:${UPSTREAM_VERSION}
@@ -28,7 +29,8 @@ ARG OPENGYM_WEB_IMAGE=ghcr.io/duartesantos8/opengym-web:${UPSTREAM_VERSION}
 # CSP it carries as ENV. An ENV value cannot be read from a file at runtime, so
 # the policy is materialised here and installed below; init-config.sh falls
 # back to it when CONTENT_SECURITY_POLICY is not set, which keeps the
-# inline-script hash in step with the frontend on every bump instead of by hand.
+# inline-script hash in step with the frontend on every release move instead of
+# by hand.
 FROM ${OPENGYM_WEB_IMAGE} AS web
 RUN printf '%s\n' "$CONTENT_SECURITY_POLICY" > /tmp/opengym-csp
 
@@ -40,8 +42,10 @@ RUN printf '%s\n' "$CONTENT_SECURITY_POLICY" > /tmp/opengym-csp
 # already absent; the deletion further down is a guard, not the source of that.
 FROM ${OPENGYM_API_IMAGE}
 ARG UPSTREAM_VERSION
-# Our own version label: v-prefixed, as the upstream git release is.
-ARG OPENGYM_VERSION=v${UPSTREAM_VERSION}
+# Our own version label: the upstream release, bare — matching upstream's image
+# tags and the container-tag convention (semver without a `v`). The git tag is
+# the one place a `v` appears (opengym-v<release>).
+ARG OPENGYM_VERSION=${UPSTREAM_VERSION}
 ARG OPENGYM_API_IMAGE
 ARG OPENGYM_WEB_IMAGE
 # Set at build time to stamp the OCI labels below: --build-arg VCS_REF=$(git rev-parse HEAD)

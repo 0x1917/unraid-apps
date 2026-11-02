@@ -1,9 +1,9 @@
 # Build, smoke-test and publish the opengym image to Docker Hub.
 #
-# Version comes from `ARG UPSTREAM_VERSION` in the Dockerfile (the upstream
-# release the image is built from); the published Hub tag is that version
-# prefixed with `v`, exactly as upstream's git releases are named. Publishes
-# two tags: the version and `latest`.
+# Version comes from `ARG UPSTREAM_VERSION` in the Dockerfile. The published Hub
+# tag is that release, bare (1.4.3) — matching upstream's own image tags; only
+# the git tag carries the `v` (opengym-v1.4.3). Publishes two tags: the version
+# and `latest`.
 #
 # Secrets (repo Settings → Secrets and variables → Actions):
 #   DOCKERHUB_TOKEN     Docker Hub access token (user 0x1917)
@@ -49,9 +49,9 @@ jobs:
         run: |
           UP=$(grep -m1 '^ARG UPSTREAM_VERSION=' images/opengym/Dockerfile | cut -d= -f2)
           test -n "$UP"
-          # Hub tag keeps the v of the upstream git release; the Dockerfile derives
-          # both upstream image refs from the same variable.
-          echo "version=v$UP" >> "$GITHUB_OUTPUT"
+          # Tag = the bare upstream release; the Dockerfile derives the same
+          # value for the OCI version label.
+          echo "version=$UP" >> "$GITHUB_OUTPUT"
           echo "api=ghcr.io/duartesantos8/opengym-api:$UP" >> "$GITHUB_OUTPUT"
           # git-formatted (%cI) so the value is always well-formed — never
           # interpolate commit metadata into `with:` blocks directly.
@@ -80,14 +80,16 @@ jobs:
           cache-from: |
             type=registry,ref=${{ env.IMAGE }}:buildcache
             type=registry,ref=${{ env.IMAGE }}:latest
-          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+          # PRs have no Docker Hub credentials (the login step is skipped), so a
+          # registry cache export fails 401. Use the Actions cache there.
+          cache-to: ${{ github.event_name == 'pull_request' && 'type=gha,mode=max' || format('type=registry,ref={0}:buildcache,mode=max', env.IMAGE) }}
           build-args: |
             VCS_REF=${{ github.sha }}
             BUILD_DATE=${{ steps.meta.outputs.build_date }}
             BASE_DIGEST=${{ steps.digest.outputs.base_digest }}
 
       - name: Smoke test
-        run: bash images/opengym/smoke-test.sh opengym:test
+        run: bash images/opengym/scripts/smoke-test.sh opengym:test
 
       # Publish the image the smoke test just ran against: retag, then push.
       # There is no second build, so what ships cannot differ from what was
@@ -110,17 +112,34 @@ jobs:
           echo "version: $v"; echo "latest:  $l"
           [ "$v" = "$l" ]
 
-      # Tag the source state that published this version. The tag is created
-      # once and never moved: a re-run of the same version leaves the existing
-      # tag pointing at the first commit that shipped it.
+      # Tag the source state that published this version. The FIRST publish of a
+      # release gets the bare tag (opengym-v1.4.3); a rebuild of the same release
+      # gets the next number (opengym-v1.4.3-1, -2, …), so every publish leaves a
+      # tag and none is ever moved. Re-running the same commit is a no-op: it
+      # already carries one.
       - name: Tag the published source state
         if: github.event_name != 'pull_request'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          TAG=opengym-${{ steps.meta.outputs.version }}
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "tag $TAG already exists — leaving it untouched"; exit 0
+          set -euo pipefail
+          BASE="opengym-v${VERSION}"
+          if git tag --points-at HEAD | grep -qF "$BASE"; then
+            echo "this commit already carries a $BASE tag — nothing to do"; exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Source state published as ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}"
+          TAG="$BASE"
+          NOTE="Source state published as $IMAGE:$VERSION"
+          if git ls-remote --exit-code --tags origin "refs/tags/$BASE" >/dev/null 2>&1; then
+            # The bare tag is taken: this is a rebuild. Number it — the series
+            # restarts per release, and concurrency keeps two runs from racing.
+            N=$(git ls-remote --tags origin | awk -v p="refs/tags/${BASE}-" \
+                  'index($2, p) == 1 { n = substr($2, length(p) + 1); if (n ~ /^[0-9]+$/) print n }' \
+                  | sort -n | tail -1)
+            N=${N:-0}
+            TAG="${BASE}-$((N + 1))"
+            NOTE="Rebuild #$((N + 1)) of $IMAGE:$VERSION (release tag already exists)"
+          fi
+          git tag -a "$TAG" -m "$NOTE"
           git push origin "refs/tags/$TAG"

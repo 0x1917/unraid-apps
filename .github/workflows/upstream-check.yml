@@ -1,0 +1,122 @@
+# Watch both upstreams this image depends on for NEWER releases, and open a pull
+# request when one exists AND a build from it passes the smoke gate.
+#
+#   * openGym's published images (ghcr.io/duartesantos8/opengym-api) — the
+#     release ARG UPSTREAM_VERSION carries
+#   * s6-overlay (pid 1 + supervisor) — ARG S6_OVERLAY_VERSION and the four
+#     sha256 values for the tarballs the Dockerfile downloads
+#
+# Why a PR and not an auto-publish: moving the app to a new release deserves a
+# human look at upstream's release notes. Merging this PR is the publish
+# trigger — the existing opengym workflow then builds, tests and pushes
+# X.Y.Z + latest.
+#
+# The build and smoke test run HERE, before the PR exists. A PR opened with the
+# repository's GITHUB_TOKEN does not start other workflow runs (deliberate, to
+# stop recursion), so the `on: pull_request` job will not appear on it; the
+# evidence is this run's log and the PR body.
+name: upstream releases
+
+on:
+  schedule:
+    - cron: "23 4 * * *"   # daily; GitHub may delay scheduled runs under load
+  workflow_dispatch:
+
+permissions:
+  contents: write        # push the update branch
+  pull-requests: write   # open the PR
+
+concurrency:
+  group: upstream-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for newer upstream releases
+        id: check
+        run: bash images/opengym/scripts/upstream-check.sh check
+
+      - name: Report when there is no newer release
+        if: steps.check.outputs.update_available != 'true'
+        run: echo "no newer release — ${{ steps.check.outputs.reason }}"
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.check.outputs.update_available == 'true'
+
+      - name: Apply the update
+        if: steps.check.outputs.update_available == 'true'
+        run: |
+          bash images/opengym/scripts/upstream-check.sh apply \
+            "${{ steps.check.outputs.app_latest }}" \
+            "${{ steps.check.outputs.s6_latest }}"
+
+      - name: Build the updated tree
+        if: steps.check.outputs.update_available == 'true'
+        run: |
+          set -euo pipefail
+          API="ghcr.io/duartesantos8/opengym-api:${{ steps.check.outputs.app_latest }}"
+          DIGEST=$(docker buildx imagetools inspect "$API" --format '{{.Manifest.Digest}}')
+          docker build -t opengym:test \
+            --build-arg VCS_REF="$GITHUB_SHA" \
+            --build-arg BUILD_DATE="$(git log -1 --format=%cI)" \
+            --build-arg BASE_DIGEST="$DIGEST" \
+            images/opengym
+
+      - name: Smoke test the updated tree
+        id: smoke
+        if: steps.check.outputs.update_available == 'true'
+        run: bash images/opengym/scripts/smoke-test.sh opengym:test
+
+      - name: Open the pull request
+        if: success() && steps.check.outputs.update_available == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REASON: ${{ steps.check.outputs.reason }}
+          APP_FROM: ${{ steps.check.outputs.app_current }}
+          APP_TO: ${{ steps.check.outputs.app_latest }}
+          S6_FROM: ${{ steps.check.outputs.s6_current }}
+          S6_TO: ${{ steps.check.outputs.s6_latest }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          BRANCH="ci/upstream-$(date -u +%Y%m%d)-${APP_TO}-s6-${S6_TO}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "branch $BRANCH already exists — a PR for this update is already open"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add images/opengym/Dockerfile images/opengym/NOTICE.md
+          git commit -m "opengym: upstream update (${REASON})"
+          git push origin "$BRANCH"
+
+          cat > /tmp/pr-body.md <<BODY
+          Automated upstream release update, built and smoke-tested by [this run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}).
+
+          - openGym: \`${APP_FROM}\` -> \`${APP_TO}\`
+          - s6-overlay: \`${S6_FROM}\` -> \`${S6_TO}\`
+          - publishes as \`${APP_TO}\` + \`latest\`
+
+          Changes in this branch: \`ARG UPSTREAM_VERSION\`, the s6-overlay version and
+          its four sha256 pins (fetched from the release's own \`.sha256\` assets),
+          and \`NOTICE.md\` re-vendored from upstream's tag. \`LICENSE\` is ours and
+          only fails this job if upstream's licence stops being the AGPL.
+
+          **The smoke gate (\`images/opengym/scripts/smoke-test.sh\`) passed on the built
+          image before this PR was opened.** Review upstream's release notes, then
+          merge — the \`opengym\` workflow builds, tests and publishes
+          \`${APP_TO}\` + \`latest\` from master. Recreate the container on Unraid
+          afterwards to actually run it.
+
+          Closing this PR without merging is a fine answer; the next scheduled run
+          will re-propose it only if the branch is gone.
+          BODY
+          gh pr create --base "$BASE" --head "$BRANCH" \
+            --title "opengym: upstream update — ${REASON} (${APP_TO})" \
+            --body-file /tmp/pr-body.md
