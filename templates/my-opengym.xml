@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <Container version="2">
-  <Name>opengym</Name>
+  <Name>OpenGym</Name>
   <Repository>0x1917/opengym</Repository>
   <Registry>https://hub.docker.com/r/0x1917/opengym</Registry>
   <Network>bridge</Network>
@@ -11,13 +11,11 @@
   <Support>https://github.com/0x1917/unraid-apps/issues</Support>
   <Project>https://github.com/DuarteSantos8/openGym</Project>
   <ReadMe>https://github.com/DuarteSantos8/openGym/blob/main/docs/SELF_HOSTING.md</ReadMe>
-  <Overview>Self-hosted gym &amp;amp; body-weight tracker: plan routines, log workouts (supersets, warm-ups, cardio), see which muscles are trained or detrained, import from FitNotes/Strong/Hevy, sign in with passkeys. Your data, your server.&#13;
-&#13;
-One container runs the whole app under s6-overlay. Both the web and API processes run unprivileged and are supervised: a crashed service is restarted, and a service that crash-loops takes the container down so Unraid's restart policy sees the failure.</Overview>
+  <Overview>Self-hosted gym &amp;amp; body-weight tracker: plan routines, log workouts (supersets, warm-ups, cardio), see which muscles are trained or detrained, import from FitNotes/Strong/Hevy, sign in with passkeys. Your data, your server.</Overview>
   <Category>Other:</Category>
   <WebUI>http://[IP]:[PORT:80]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/0x1917/unraid-apps/master/templates/my-opengym.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/DuarteSantos8/openGym/main/assets/banner.png</Icon>
+  <Icon>https://raw.githubusercontent.com/DuarteSantos8/openGym/main/frontend/public/icon-512.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>
