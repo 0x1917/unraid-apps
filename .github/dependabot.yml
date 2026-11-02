@@ -1,0 +1,19 @@
+# Dependabot: GitHub Actions only.
+#
+# The workflows pin actions by major tag (checkout@v4 etc.), so patch and
+# minor fixes arrive on their own. What this file adds is the only channel
+# that tells us a new major exists: a weekly PR. Close it if a major is not
+# wanted yet; the reminder costs nothing.
+#
+# No `docker` ecosystem entry: the image refs are ARG variables
+# (FROM ${OPENGYM_API_IMAGE}), and Dependabot cannot resolve those to a
+# registry tag. Upstream version bumps are handled by ARG UPSTREAM_VERSION.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
