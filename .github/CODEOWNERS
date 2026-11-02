@@ -1,0 +1,9 @@
+# Default reviewer for every pull request.
+#
+# GitHub reads this file from the DEFAULT BRANCH only (master here), so it has
+# no effect until it is merged there. Requesting a review does not block a
+# merge on its own: the master ruleset keeps require_code_owner_review false,
+# so a PR authored by the owner can still be merged by an admin instead of
+# waiting for an approval it structurally cannot get.
+
+* @0x1917
