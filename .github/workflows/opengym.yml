@@ -1,12 +1,10 @@
-# Build, smoke-test and publish the opengym image to Docker Hub.
+# Build, smoke-test, and publish the opengym image to Docker Hub.
 #
-# Version comes from `ARG UPSTREAM_VERSION` in the Dockerfile. The published Hub
-# tag is that release, bare (1.4.3) — matching upstream's own image tags; only
-# the git tag carries the `v` (opengym-v1.4.3). Publishes two tags: the version
-# and `latest`.
+# Publishes two tags: the version and `latest`.
+# Version comes from `ARG UPSTREAM_VERSION` in the Dockerfile. 
 #
-# Secrets (repo Settings → Secrets and variables → Actions):
-#   DOCKERHUB_TOKEN     Docker Hub access token (user 0x1917)
+# Secrets (Repo Settings → Secrets and Variables → Actions):
+#   DOCKERHUB_TOKEN     Docker Hub access token
 # Pull requests build and smoke-test but never push.
 
 name: opengym
@@ -38,13 +36,37 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # A hung buildx step otherwise burns the 6 h default; the whole job
+    # A hung buildx step otherwise burns the 6h default; the whole job
     # (pull + build + smoke + push) runs in ~3 min when healthy.
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The scope check below diffs github.event.before against HEAD.
+          fetch-depth: 0
 
-      - name: Resolve version and upstream ref from the Dockerfile
+      # A push that touches only the workflow must still RUN but it must not republish.
+      # Anything under images/opengym counts as a build input except the two
+      # paths that never reach the image (the CI scripts and this README), so a
+      # new file defaults to publishing rather than silently skipping.
+      - name: Determine if image was updated
+        id: scope
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]       \
+             || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null            \
+             || ! git diff --quiet "$BEFORE" "$GITHUB_SHA" -- images/opengym  \
+                  ':(exclude)images/opengym/scripts' ':(exclude)images/opengym/README.md'; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "workflow-only change — build and smoke still run, publish skipped"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve version from the Dockerfile
         id: meta
         run: |
           UP=$(grep -m1 '^ARG UPSTREAM_VERSION=' images/opengym/Dockerfile | cut -d= -f2)
@@ -65,13 +87,13 @@ jobs:
         run: echo "base_digest=$(docker buildx imagetools inspect ${{ steps.meta.outputs.api }} --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
 
       - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.scope.outputs.publish == 'true'
         uses: docker/login-action@v3
         with:
           username: "0x1917"
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build (load for smoke test)
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: images/opengym
@@ -88,14 +110,11 @@ jobs:
             BUILD_DATE=${{ steps.meta.outputs.build_date }}
             BASE_DIGEST=${{ steps.digest.outputs.base_digest }}
 
-      - name: Smoke test
+      - name: Run smoke test
         run: bash images/opengym/scripts/smoke-test.sh opengym:test
 
-      # Publish the image the smoke test just ran against: retag, then push.
-      # There is no second build, so what ships cannot differ from what was
-      # verified (same image ID, same layers).
-      - name: Push the tested image (version + latest)
-        if: github.event_name != 'pull_request'
+      - name: Tag and push the image to Docker Hub
+        if: github.event_name != 'pull_request' && steps.scope.outputs.publish == 'true'
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
@@ -105,7 +124,7 @@ jobs:
           docker push "$IMAGE:latest"
 
       - name: Verify both tags carry the same digest
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.scope.outputs.publish == 'true'
         run: |
           v=$(docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }} --format '{{.Manifest.Digest}}')
           l=$(docker buildx imagetools inspect ${{ env.IMAGE }}:latest --format '{{.Manifest.Digest}}')
@@ -117,8 +136,8 @@ jobs:
       # gets the next number (opengym-v1.4.3-1, -2, …), so every publish leaves a
       # tag and none is ever moved. Re-running the same commit is a no-op: it
       # already carries one.
-      - name: Tag the published source state
-        if: github.event_name != 'pull_request'
+      - name: Create GitHub tag
+        if: github.event_name != 'pull_request' && steps.scope.outputs.publish == 'true'
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
