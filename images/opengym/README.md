@@ -22,21 +22,27 @@ loopback API, which keeps the app on a single origin (a passkey requirement).
 
 ## Build
 
-Runs on any Docker host:
+Runs on any Docker host. The application is not rebuilt: the Dockerfile starts
+from upstream's published `opengym-api` / `opengym-web` images, pinned by tag
+and digest (`ARG UPSTREAM_VERSION`, `OPENGYM_API_IMAGE`, `OPENGYM_WEB_IMAGE`),
+and adds the supervision layer on top.
 
 ```sh
-# VCS_REF/BUILD_DATE stamp the OCI provenance labels (BUILD_DATE is the source
-# commit's date, deterministic per source state); BASE_DIGEST resolves on the
-# build host. Skip them and the labels read dev/unknown.
+# VCS_REF/BUILD_DATE stamp the OCI provenance labels (BUILD_DATE is this repo's
+# commit date, deterministic per source state). BASE_DIGEST is resolved on the
+# build host from the release pinned in the Dockerfile, and only feeds the base
+# digest label. Skip them and the labels read dev/unknown.
 VCS_REF=$(git rev-parse HEAD)
 BUILD_DATE=$(git log -1 --format=%cI)
 tar -C images/opengym -cf - . | ssh root@<docker-host> "
-  rm -rf /tmp/opengym && mkdir -p /tmp/opengym && tar -C /tmp/opengym -xf - &&                            \
-  BASE_DIGEST=\$(docker buildx imagetools inspect node:22.23.4-alpine --format '{{.Manifest.Digest}}') && \
-  docker build -t opengym:latest                                                                          \
-    --build-arg VCS_REF=$VCS_REF                                                                          \
-    --build-arg BUILD_DATE=$BUILD_DATE                                                                    \
-    --build-arg BASE_DIGEST=\$BASE_DIGEST                                                                 \
+  rm -rf /tmp/opengym && mkdir -p /tmp/opengym && tar -C /tmp/opengym -xf - &&       \
+  UP=\$(grep -m1 '^ARG UPSTREAM_VERSION=' /tmp/opengym/Dockerfile | cut -d= -f2) &&  \
+  BASE_DIGEST=\$(docker buildx imagetools inspect                                    \
+      ghcr.io/duartesantos8/opengym-api:\$UP --format '{{.Manifest.Digest}}') &&     \
+  docker build -t opengym:latest                                                     \
+    --build-arg VCS_REF=$VCS_REF                                                     \
+    --build-arg BUILD_DATE=$BUILD_DATE                                               \
+    --build-arg BASE_DIGEST=\$BASE_DIGEST                                            \
     /tmp/opengym"
 ```
 
@@ -82,5 +88,8 @@ except `ALLOW_GUEST` and `AUDIT_LOG`, which default `on` and take
 - **Both services unprivileged.** API as uid 99 (group `users`, Unraid's
   appdata convention), nginx as the distro `nginx` account — only the API can
   read `/data`.
-- **Source cloned at the pinned tag** (`OPENGYM_VERSION`). The API module COPY
-  list mirrors upstream's Dockerfile by hand — diff it on every version bump.
+- **Built from upstream's published images**, one `UPSTREAM_VERSION` variable
+  driving both refs. No source clone and no `npm ci` at build: the app is
+  upstream's byte for byte. A version bump is one edit to that ARG (preflight
+  checks both refs still derive from it). The CSP is taken from the web image at
+  build time, so the inline-script hash never needs hand-syncing.

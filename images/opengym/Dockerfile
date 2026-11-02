@@ -3,76 +3,51 @@
 # The whole OpenGym app (API + web) in ONE image, supervised by s6-overlay
 # with a crash-loop finish policy.
 #
-# Upstream references (at the pinned OPENGYM_VERSION tag — keep the links in step
-# with the ARG on every version bump):
-#   https://github.com/DuarteSantos8/openGym/blob/v1.4.3/api/Dockerfile
-#   https://github.com/DuarteSantos8/openGym/blob/v1.4.3/web/Dockerfile
-#   https://github.com/DuarteSantos8/openGym/blob/v1.4.3/docker-compose.yml
+# The application is NOT built here. It comes from upstream's published
+# images, pinned by tag.
+#
+# What this file adds on top of upstream: s6-overlay supervision (upstream
+# ships two containers with one process each), uid-99 ownership for Unraid
+# appdata, an unprivileged nginx master that cannot reach /data, and the
+# boot-time config rendering those need. Runtime files: runtime/.
 
-# Version pin for the upstream checkout. Rebuilds are reproducible against this tag.
-ARG OPENGYM_VERSION=v1.4.3
-# The node version upstream's own Dockerfiles (header links) build and test against.
-ARG NODE_IMAGE=node:22.23.4-alpine
+# The upstream release this image is built from. Upstream publishes semver
+# image tags without a `v` (1.4.3, 1.4, latest, edge); the git release of the
+# same version is v1.4.3, which is what the links above use.
+ARG UPSTREAM_VERSION=1.4.3
 
-# -- SRC --------------------------------------------------------------------
-FROM alpine:3.22 AS src
-ARG OPENGYM_VERSION
-RUN apk add --no-cache git
-# --depth 1 --branch <tag> checks the tag out detached; the assertion below makes a
-# renamed/moved tag a build failure instead of a silently different app.
-RUN git clone --depth 1 --branch "${OPENGYM_VERSION}" https://github.com/DuarteSantos8/openGym.git /src \
- && test -f /src/api/server.js                                                                          \
- && test -f /src/web/nginx.conf.template                                                                \
- && test -f /src/web/05-check-base-path.sh                                                              \
- && test -f /src/catalogue/media/NOTICE.md                                                              \
- && test -d /src/catalogue/media/still                                                                  \
- && test -d /src/catalogue/media/clip
+# The two images this build starts from. Both refs derive from UPSTREAM_VERSION:
+# bumping the release is one edit and the pair cannot drift apart. `--build-arg`
+# can still override either ref for a one-off build of a specific digest.
+ARG OPENGYM_API_IMAGE=ghcr.io/duartesantos8/opengym-api:${UPSTREAM_VERSION}
+ARG OPENGYM_WEB_IMAGE=ghcr.io/duartesantos8/opengym-web:${UPSTREAM_VERSION}
 
-# -- WEB-BUILD --------------------------------------------------------------
-# The build stage of upstream's web/Dockerfile, run against the cloned tree
-# (same --platform trade, same /app/frontend + api/coach/core layout, same
-# --ignore-scripts install — the header link carries the reasons).
-FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS web-build
-ARG OPENGYM_VERSION
-ARG APP_BUILD=""
-WORKDIR /app/frontend
-COPY --from=src /src/frontend/package.json /src/frontend/package-lock.json* ./
-RUN npm ci --ignore-scripts
-COPY --from=src /src/api/coach/core/ /app/api/coach/core/
-COPY --from=src /src/frontend/ ./
-# APP_BUILD is shown in the app next to the package.json version. A build made from
-# a pinned tag IS identified by that tag, so pass it through by default.
-RUN APP_BUILD="${APP_BUILD:-$OPENGYM_VERSION}" npm run build \
- && test -f dist/index.html
-
-# -- API-BUILD --------------------------------------------------------------
-# The default target of upstream's api/Dockerfile, run against the cloned tree
-# (header link): same `npm ci --omit=dev --omit=optional`, so no AI runtime and no
-# AI dependency. No --platform pin on purpose: node_modules must match the TARGET
-# platform (the runtime stage runs them natively; the deps here are pure JS but
-# this stays true if upstream ever adds a native one).
-FROM ${NODE_IMAGE} AS api-build
-WORKDIR /app/api
-COPY --from=src /src/api/package.json /src/api/package-lock.json* ./
-RUN npm ci --omit=dev --omit=optional && npm cache clean --force
-# The module list below mirrors upstream's COPY line. Upstream's
-# api/test/dockerfile-copy.test.js guards ITS line, not this one: a root-level
-# module added upstream shows here only at boot, as ERR_MODULE_NOT_FOUND. Diff the
-# two lists at every version bump.
-COPY --from=src /src/api/server.js /src/api/push-messages.js /src/api/nudge.js          \
-     /src/api/nudge-copy.js /src/api/verify-error.js /src/api/password.js               \
-     /src/api/rate-limit.js /src/api/passkeys-store.js /src/api/device-link.js          \
-     /src/api/media.js /src/api/queue.js /src/api/sync-stamps.js /src/api/durable.js    \
-     /src/api/admin-socket.js /src/api/recover.js ./
-COPY --from=src /src/api/coach/ ./coach/
+# -- WEB --------------------------------------------------------------------
+# Two things come out of upstream's web image: the built SPA (the exercise
+# media it bakes in land under exercise-media/ and come along with it) and the
+# CSP it carries as ENV. An ENV value cannot be read from a file at runtime, so
+# the policy is materialised here and installed below; init-config.sh falls
+# back to it when CONTENT_SECURITY_POLICY is not set, which keeps the
+# inline-script hash in step with the frontend on every bump instead of by hand.
+FROM ${OPENGYM_WEB_IMAGE} AS web
+RUN printf '%s\n' "$CONTENT_SECURITY_POLICY" > /tmp/opengym-csp
 
 # -- IMAGE ------------------------------------------------------------------
-FROM ${NODE_IMAGE}
-ARG OPENGYM_VERSION
-ARG NODE_IMAGE
+# Upstream's API image: node runtime plus the app at /app (server.js, the root
+# modules, coach/ and node_modules from `npm ci --omit=dev --omit=optional`; the
+# image's own WORKDIR is /app, which the end of this file repeats). It is the
+# `default` target of upstream's api/Dockerfile, so npm and the AI runtime are
+# already absent; the deletion further down is a guard, not the source of that.
+FROM ${OPENGYM_API_IMAGE}
+ARG UPSTREAM_VERSION
+# Our own version label: v-prefixed, as the upstream git release is.
+ARG OPENGYM_VERSION=v${UPSTREAM_VERSION}
+ARG OPENGYM_API_IMAGE
+ARG OPENGYM_WEB_IMAGE
 # Set at build time to stamp the OCI labels below: --build-arg VCS_REF=$(git rev-parse HEAD)
-# BUILD_DATE=$(git log -1 --format=%cI) (the source commit's date — deterministic per source
-# state) BASE_DIGEST=$(docker buildx imagetools inspect <base> --format '{{.Manifest.Digest}}').
+# BUILD_DATE=$(git log -1 --format=%cI) (this repo's commit date — deterministic per source
+# state). BASE_DIGEST is the manifest digest of the api image ref, resolved by the workflow
+# (or the README recipe) with `docker buildx imagetools inspect`; left unset it reads unknown.
 ARG VCS_REF=dev
 ARG BUILD_DATE=unknown
 ARG BASE_DIGEST=unknown
@@ -98,8 +73,11 @@ LABEL org.opencontainers.image.authors="0x1917 (https://github.com/0x1917)"     
       org.opencontainers.image.version="${OPENGYM_VERSION}"                                                                             \
       org.opencontainers.image.revision="${VCS_REF}"                                                                                    \
       org.opencontainers.image.created="${BUILD_DATE}"                                                                                  \
-      org.opencontainers.image.base.name="docker.io/library/${NODE_IMAGE}"                                                              \
-      org.opencontainers.image.base.digest="${BASE_DIGEST}"
+      org.opencontainers.image.base.name="ghcr.io/duartesantos8/opengym-api"                                                            \
+      org.opencontainers.image.base.digest="${BASE_DIGEST}"                                                                             \
+      io.opengym.upstream.version="${UPSTREAM_VERSION}"                                                                                 \
+      io.opengym.upstream.api="${OPENGYM_API_IMAGE}"                                                                                    \
+      io.opengym.upstream.web="${OPENGYM_WEB_IMAGE}"
 
 # apk upgrade first, as upstream's Dockerfiles do; the header links carry the reason.
 # nginx: serves the SPA and proxies /api (alpine package, master runs unprivileged).
@@ -141,16 +119,13 @@ RUN addgroup -g 100 users 2>/dev/null || true             \
  && adduser -D -H -u 99 -G users -s /sbin/nologin opengym \
  && getent passwd nginx >/dev/null
 
-# The api runtime (node_modules + the exact module set server.js imports).
-COPY --from=api-build /app/api /app/api
-# The built SPA. The exercise stills and animations ship with upstream in
-# catalogue/media and are baked in here too (see README.md for why they are baked
-# rather than seeded at first boot): nothing is downloaded at start-up.
-COPY --from=web-build /app/frontend/dist /usr/share/nginx/html
-COPY --from=src /src/catalogue/media/ /usr/share/nginx/html/exercise-media/
-# Upstream's nginx site template and BASE_PATH guard, used unchanged at boot.
-COPY --from=src /src/web/nginx.conf.template /etc/nginx/templates/default.conf.template
-COPY --from=src /src/web/05-check-base-path.sh /usr/libexec/opengym/05-check-base-path.sh
+# The built SPA and the exercise media, both already at their final paths inside
+# upstream's web image (media under exercise-media/): nothing is downloaded at
+# start-up. The site template and the BASE_PATH guard are upstream's, unchanged.
+COPY --from=web /usr/share/nginx/html/ /usr/share/nginx/html/
+COPY --from=web /etc/nginx/templates/default.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=web /docker-entrypoint.d/05-check-base-path.sh /usr/libexec/opengym/05-check-base-path.sh
+COPY --from=web /tmp/opengym-csp /etc/opengym/content-security-policy
 
 # Our own files. RUN cannot read the build context — it executes in the image's
 # filesystem — so the files are staged in with COPY first, then installed at
@@ -171,20 +146,22 @@ RUN install -D -m 644 /tmp/opengym-runtime/nginx.conf         /etc/nginx/nginx.c
  && install -D -m 755 /tmp/opengym-runtime/init-config.sh    /usr/libexec/opengym/init-config.sh     \
  && install -D -m 755 /tmp/opengym-runtime/finish-policy.sh  /usr/libexec/opengym/finish-policy.sh   \
  && rm -rf /tmp/opengym-runtime                                                                      \
- && chmod 755 /usr/libexec/opengym/05-check-base-path.sh                              \
- && printf 'longrun\n' > /etc/s6-overlay/s6-rc.d/api/type                             \
- && printf 'longrun\n' > /etc/s6-overlay/s6-rc.d/nginx/type                           \
- && printf 'oneshot\n' > /etc/s6-overlay/s6-rc.d/init-config/type                     \
- && install -d /etc/s6-overlay/s6-rc.d/api/dependencies.d                             \
-              /etc/s6-overlay/s6-rc.d/nginx/dependencies.d                            \
-              /etc/s6-overlay/user-bundles.d/user/contents.d                          \
- && touch /etc/s6-overlay/s6-rc.d/api/dependencies.d/init-config                      \
-          /etc/s6-overlay/s6-rc.d/nginx/dependencies.d/init-config                    \
-          /etc/s6-overlay/user-bundles.d/user/contents.d/api                          \
+ && chmod 755 /usr/libexec/opengym/05-check-base-path.sh                                             \
+ && printf 'longrun\n' > /etc/s6-overlay/s6-rc.d/api/type                                            \
+ && printf 'longrun\n' > /etc/s6-overlay/s6-rc.d/nginx/type                                          \
+ && printf 'oneshot\n' > /etc/s6-overlay/s6-rc.d/init-config/type                                    \
+ && install -d /etc/s6-overlay/s6-rc.d/api/dependencies.d                                            \
+              /etc/s6-overlay/s6-rc.d/nginx/dependencies.d                                           \
+              /etc/s6-overlay/user-bundles.d/user/contents.d                                         \
+ && touch /etc/s6-overlay/s6-rc.d/api/dependencies.d/init-config                                     \
+          /etc/s6-overlay/s6-rc.d/nginx/dependencies.d/init-config                                   \
+          /etc/s6-overlay/user-bundles.d/user/contents.d/api                                         \
           /etc/s6-overlay/user-bundles.d/user/contents.d/nginx
 
-# npm and npx are build-time tools only and are deleted for the reason upstream's
-# api/Dockerfile default target gives (header link; same removal, same lines).
+# npm and npx are build-time tools only. Upstream's published image is its
+# `default` target and already lacks them; repeating the removal here means a
+# pin to an image built from a different upstream target cannot silently ship
+# npm plus the AI runtime dependency tree. The smoke test asserts the invariant.
 RUN rm -rf /usr/local/lib/node_modules/npm  \
            /usr/local/bin/npm               \
            /usr/local/bin/npx
@@ -197,6 +174,9 @@ RUN rm -rf /usr/local/lib/node_modules/npm  \
 # PASSWORD_LOGIN and FIRST_USER_ADMIN are deliberately NOT defaulted here: both
 # are template rows (default true), so the choice belongs to the deployer's
 # config, not the image. A plain `docker run` without them gets upstream's off.
+# CONTENT_SECURITY_POLICY is not set here: the web tier's policy is baked from
+# upstream's web image at /etc/opengym/content-security-policy, and
+# init-config.sh exports it unless the deployer overrides it.
 ENV NODE_ENV=production    \
     PORT=3000              \
     DATA_DIR=/data         \
@@ -206,8 +186,7 @@ ENV NODE_ENV=production    \
     CF_CONNECTING_IP=      \
     BASE_PATH=             \
     MEDIA_UPLOAD_MAX=48m   \
-    TZ=Etc/UTC             \
-    CONTENT_SECURITY_POLICY="default-src 'self'; script-src 'self' 'sha256-xUZtZS1nWJaAyUqA7ZKgkLhjdEisnY0MiRmax16aGFg='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https: http:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    TZ=Etc/UTC
 
 # S6_BEHAVIOUR_IF_STAGE2_FAILS=2: a failed one-shot init (bad BASE_PATH, unwritable
 # /data, nginx refusing the rendered config) must stop the container instead of
@@ -219,7 +198,7 @@ ENV NODE_ENV=production    \
 ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
     S6_KEEP_ENV=1
 
-WORKDIR /app/api
+WORKDIR /app
 EXPOSE 80
 
 # Probes through nginx into the api: healthy only if the SPA server answers AND the
@@ -235,6 +214,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 # It is s6-pause rather than an empty CMD on purpose: killing it makes the container
 # exit NON-ZERO (143), so a crash loop looks like a failure to Docker's restart
 # policy (on-failure included), while `docker stop` still exits 0 through the normal
-# signal path. The base image's own CMD (node) is replaced either way.
+# signal path. Upstream's own CMD (node server.js) is replaced either way.
 ENTRYPOINT ["/init"]
 CMD ["s6-pause"]

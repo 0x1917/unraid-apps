@@ -1,7 +1,9 @@
 # Build, smoke-test and publish the opengym image to Docker Hub.
 #
-# Version comes from `ARG OPENGYM_VERSION` in the Dockerfile, tagged exactly as
-# upstream releases it. Publishes two tags: the version and `latest`.
+# Version comes from `ARG UPSTREAM_VERSION` in the Dockerfile (the upstream
+# release the image is built from); the published Hub tag is that version
+# prefixed with `v`, exactly as upstream's git releases are named. Publishes
+# two tags: the version and `latest`.
 #
 # Secrets (repo Settings → Secrets and variables → Actions):
 #   DOCKERHUB_TOKEN     Docker Hub access token (user 0x1917)
@@ -33,23 +35,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve version and base image from the Dockerfile
+      - name: Resolve version and upstream ref from the Dockerfile
         id: meta
         run: |
-          VER=$(grep -m1 '^ARG OPENGYM_VERSION=' images/opengym/Dockerfile | cut -d= -f2)
-          BASE=$(grep -m1 '^ARG NODE_IMAGE=' images/opengym/Dockerfile | cut -d= -f2)
-          test -n "$VER" && test -n "$BASE"
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          UP=$(grep -m1 '^ARG UPSTREAM_VERSION=' images/opengym/Dockerfile | cut -d= -f2)
+          test -n "$UP"
+          # Hub tag keeps the v of the upstream git release; the Dockerfile derives
+          # both upstream image refs from the same variable.
+          echo "version=v$UP" >> "$GITHUB_OUTPUT"
+          echo "api=ghcr.io/duartesantos8/opengym-api:$UP" >> "$GITHUB_OUTPUT"
           # git-formatted (%cI) so the value is always well-formed — never
           # interpolate commit metadata into `with:` blocks directly.
           echo "build_date=$(git log -1 --format=%cI)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
+      # Only feeds the provenance label: the Dockerfile itself pins by tag.
       - name: Resolve base image digest
         id: digest
-        run: echo "base_digest=$(docker buildx imagetools inspect ${{ steps.meta.outputs.base }} --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
+        run: echo "base_digest=$(docker buildx imagetools inspect ${{ steps.meta.outputs.api }} --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'

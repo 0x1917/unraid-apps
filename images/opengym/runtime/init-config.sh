@@ -34,6 +34,12 @@ chmod 0666 /run/nginx/log.pipe
 # explicit: envsubst replaces every \${VAR} it is given, and blindly substituting
 # all environment variables would also eat nginx's own runtime variables ($host,
 # $request_uri, ...) that the template needs intact.
+#
+# The CSP is not a container ENV: it ships as a file baked from upstream's web
+# image (the policy hash must track the frontend), so default the variable from
+# it here, where a deployer's explicit override still wins.
+CONTENT_SECURITY_POLICY=${CONTENT_SECURITY_POLICY:-$(cat /etc/opengym/content-security-policy)}
+export CONTENT_SECURITY_POLICY
 envsubst '${NGINX_PORT} ${BASE_PATH} ${BACKEND} ${PORT} ${RESOLVER} ${CF_CONNECTING_IP} ${MEDIA_UPLOAD_MAX} ${CONTENT_SECURITY_POLICY}' \
   < /etc/nginx/templates/default.conf.template > /run/nginx/site.conf
 chown nginx:nginx /run/nginx/site.conf
