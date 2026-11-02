@@ -42,7 +42,7 @@ RUN printf '%s\n' "$CONTENT_SECURITY_POLICY" > /tmp/opengym-csp
 # already absent; the deletion further down is a guard, not the source of that.
 FROM ${OPENGYM_API_IMAGE}
 ARG UPSTREAM_VERSION
-# Our own version label: the upstream release, bare — matching upstream's image
+# Our own version label: the upstream release, bare, matching upstream's image
 # tags and the container-tag convention (semver without a `v`). The git tag is
 # the one place a `v` appears (opengym-v<release>).
 ARG OPENGYM_VERSION=${UPSTREAM_VERSION}
@@ -72,7 +72,7 @@ LABEL org.opencontainers.image.authors="0x1917 (https://github.com/0x1917)"     
       org.opencontainers.image.description="Self-hosted gym & body-weight tracker in a single container with s6-overlay supervision."   \
       org.opencontainers.image.source="https://github.com/0x1917/unraid-apps"                                                           \
       org.opencontainers.image.url="https://opengym.ch"                                                                                 \
-      org.opencontainers.image.documentation="https://github.com/DuarteSantos8/openGym#readme"                                          \
+      org.opencontainers.image.documentation="https://github.com/0x1917/unraid-apps/blob/master/images/opengym/README.md"               \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"                                                                             \
       org.opencontainers.image.version="${OPENGYM_VERSION}"                                                                             \
       org.opencontainers.image.revision="${VCS_REF}"                                                                                    \
@@ -134,13 +134,13 @@ COPY --from=web /tmp/opengym-csp /etc/opengym/content-security-policy
 # Licence texts travel WITH the image: it redistributes upstream's AGPL build and
 # the Gym visual exercise media, which upstream licenses separately from the AGPL
 # ("provided strictly for use within the openGym application"). Both files are
-# vendored into this build context — LICENSE is byte-identical to the repo root,
+# vendored into this build context: LICENSE is byte-identical to the repo root,
 # NOTICE.md is upstream's third-party notice at the pinned release — because the
 # build context is images/opengym/, not the repo root.
 COPY LICENSE NOTICE.md /usr/share/opengym/
 
-# Our own files. RUN cannot read the build context — it executes in the image's
-# filesystem — so the files are staged in with COPY first, then installed at
+# Our own files. RUN cannot read the build context; it executes in the image's
+# filesystem. So the files are staged in with COPY first, then installed at
 # their target paths (the recipe stays the single place that says where each
 # one lands) and the staging dir is removed in the same layer. The s6-rc
 # plumbing (one-word `type` files, the empty dependency/bundle markers) is
@@ -180,7 +180,7 @@ RUN rm -rf /usr/local/lib/node_modules/npm  \
 
 # PORT: the api's listen port, read by both services (upstream's web template proxies
 # to http://${BACKEND}:${PORT}, and the api listens on it). BACKEND is 127.0.0.1
-# because the api lives in this same container — no DNS name to re-resolve.
+# because the api lives in this same container, so no DNS name needs re-resolving.
 # RESOLVER: kept configurable for parity with upstream's template (the /api blocks
 # carry a `resolver` directive); on Docker the embedded DNS answers.
 # PASSWORD_LOGIN and FIRST_USER_ADMIN are deliberately NOT defaulted here: both
@@ -221,7 +221,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 
 # s6-overlay as pid 1, with s6-pause as the CMD: the container's work is entirely
 # its supervised services, and s6-overlay keeps the container alive exactly as long
-# as this CMD runs — so the CMD is also the lever the crash-loop escalation pulls
+# as this CMD runs, so the CMD is also the lever the crash-loop escalation pulls
 # (see finish-policy.sh), and ending it is what lets /init run its shutdown stage.
 # It is s6-pause rather than an empty CMD on purpose: killing it makes the container
 # exit NON-ZERO (143), so a crash loop looks like a failure to Docker's restart
