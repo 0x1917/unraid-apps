@@ -12,7 +12,13 @@ IMAGE=${1:-opengym:test}
 NAME=opengym-smoke
 DATA=$(mktemp -d)
 CJ=$(mktemp)
-cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$DATA" "$CJ"; }
+cleanup() {
+  docker rm -f "$NAME" >/dev/null 2>&1 || true
+  # The container chowns /data to 99:100, so a non-root runner (CI) cannot unlink
+  # its contents. Cleanup must never decide the gate's verdict — an EXIT trap that
+  # fails turns a green run into exit 1.
+  rm -rf "$DATA" "$CJ" 2>/dev/null || echo "note: left $DATA behind (owned by 99:100)" >&2
+}
 trap cleanup EXIT
 pass() { printf 'PASS  %s\n' "$1"; }
 die()  { printf 'FAIL  %s\n' "$1" >&2; docker logs "$NAME" 2>&1 | tail -25 >&2 || true; exit 1; }
