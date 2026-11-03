@@ -7,6 +7,11 @@
 #
 # Nothing here can build. The bytes come from the artifact or they do not ship.
 #
+# Docker Hub is the release channel. A copy is also pushed to ghcr.io, best
+# effort: it can fail without failing the run, because the git tag and the Hub
+# tags are already final by then. A GHCR outage must not leave a red run
+# pointing at a published image.
+#
 # Secrets (Repo Settings, Secrets and Variables, Actions):
 #   DOCKERHUB_TOKEN     Docker Hub access token
 
@@ -27,6 +32,7 @@ on:
 permissions:
   contents: write   # push the opengym-v<ver> source tag
   actions: read     # download the artifact from the triggering run
+  packages: write   # best-effort copy to ghcr.io
 
 # Publishing is serialised across runs: :latest must never be raced by two
 # publishes, and the numbered tag series assumes one writer.
@@ -36,6 +42,7 @@ concurrency:
 
 env:
   IMAGE: 0x1917/opengym
+  GHCR: ghcr.io/0x1917/opengym
   ARTIFACT: opengym-image
 
 jobs:
@@ -210,3 +217,65 @@ jobs:
           fi
           git tag -a "$TAG" -m "$NOTE"
           git push origin "refs/tags/$TAG"
+
+      # ---- best-effort mirror to GHCR ----------------------------------
+      # Everything below runs after the Hub push, the digest check and the git
+      # tag, so a failure here cannot corrupt the release record. Each step is
+      # continue-on-error and the last one reports the combined outcome as a
+      # warning annotation instead of a red run.
+      - name: Log in to GHCR
+        id: ghcr_login
+        if: steps.meta.outputs.publish == 'true'
+        continue-on-error: true
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the GHCR copy
+        id: ghcr_push
+        if: steps.meta.outputs.publish == 'true'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker tag opengym:test "$GHCR:$VERSION"
+          docker tag opengym:test "$GHCR:latest"
+          docker push "$GHCR:$VERSION"
+          docker push "$GHCR:latest"
+
+      # Both registries store the same manifest bytes, so the digest is the
+      # same content-addressed value on each: compare the GHCR copy against the
+      # Hub tag too, not only against its own `latest`. A mismatch means the
+      # mirror is not carrying the published image.
+      - name: Verify the GHCR tags
+        id: ghcr_verify
+        if: steps.meta.outputs.publish == 'true'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          v=$(docker buildx imagetools inspect "$GHCR:$VERSION" --format '{{.Manifest.Digest}}')
+          l=$(docker buildx imagetools inspect "$GHCR:latest" --format '{{.Manifest.Digest}}')
+          h=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')
+          echo "ghcr version: $v"
+          echo "ghcr latest:  $l"
+          echo "hub  version: $h"
+          [ "$v" = "$l" ]
+          [ "$v" = "$h" ]
+
+      - name: GHCR outcome
+        if: always() && steps.meta.outputs.publish == 'true'
+        env:
+          LOGIN: ${{ steps.ghcr_login.outcome }}
+          PUSH: ${{ steps.ghcr_push.outcome }}
+          VERIFY: ${{ steps.ghcr_verify.outcome }}
+        run: |
+          set -uo pipefail
+          echo "ghcr login: $LOGIN, push: $PUSH, verify: $VERIFY"
+          if [ "$LOGIN" != "success" ] || [ "$PUSH" != "success" ] || [ "$VERIFY" != "success" ]; then
+            echo "::warning::GHCR mirror incomplete (login=$LOGIN push=$PUSH verify=$VERIFY); Docker Hub published, treat ${GHCR:-ghcr.io} as unavailable"
+          fi
