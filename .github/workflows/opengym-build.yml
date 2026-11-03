@@ -10,17 +10,15 @@
 name: opengym-build
 
 on:
+  # Every push builds, no path filter: the build is cheap and always valid.
+  # What republishes is decided inside the job by the scope step, which diffs
+  # the build inputs, not by the trigger.
   push:
     branches: [master]
-    paths:
-      - images/opengym/**
-      - .github/workflows/opengym-build.yml
-      - .github/workflows/opengym-publish.yml
+  # Every PR runs the build, no path filter: the master ruleset requires the
+  # "build" status check, and a PR that produced no check would wait forever.
+  # The push filter below still decides what republishes.
   pull_request:
-    paths:
-      - images/opengym/**
-      - .github/workflows/opengym-build.yml
-      - .github/workflows/opengym-publish.yml
   # Manual run. `force_publish=true` marks the build as publishable even though
   # nothing changed: a dispatch run has no before-sha to diff. Without the input
   # it builds and smokes only, which is the safe default.
@@ -49,6 +47,10 @@ env:
 
 jobs:
   build:
+    # The check context equals this name (or the ID when omitted). The master
+    # ruleset requires the status check "build", so changing either silently
+    # disarms the gate.
+    name: build
     runs-on: ubuntu-latest
     # A hung buildx step otherwise burns the 6h default; a healthy run is ~1 min.
     timeout-minutes: 25

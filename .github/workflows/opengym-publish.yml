@@ -37,9 +37,6 @@ concurrency:
 env:
   IMAGE: 0x1917/opengym
   ARTIFACT: opengym-image
-  # Outside the checkout on purpose: actions/checkout cleans the working tree,
-  # which would delete the downloaded bundle.
-  BUNDLE: ${{ runner.temp }}/bundle
 
 jobs:
   publish:
@@ -84,7 +81,10 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: ${{ env.ARTIFACT }}
-          path: ${{ env.BUNDLE }}
+          # Outside the checkout on purpose: actions/checkout cleans the working
+          # tree, which would delete a bundle downloaded into it. `runner` is
+          # usable in step inputs but not in `env` blocks.
+          path: ${{ runner.temp }}/bundle
           run-id: ${{ env.RUN_ID }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -94,6 +94,7 @@ jobs:
         id: meta
         run: |
           set -euo pipefail
+          BUNDLE="$RUNNER_TEMP/bundle"
           test -s "$BUNDLE/meta.json" || { echo "no meta.json in the artifact" >&2; exit 1; }
           cat "$BUNDLE/meta.json"
           echo "version=$(jq -r .version "$BUNDLE/meta.json")" >> "$GITHUB_OUTPUT"
@@ -117,6 +118,7 @@ jobs:
         if: steps.meta.outputs.publish == 'true'
         run: |
           set -euo pipefail
+          BUNDLE="$RUNNER_TEMP/bundle"
           test -s "$BUNDLE/image.tar.zst" || { echo "artifact has no image tarball" >&2; exit 1; }
           zstd -dc "$BUNDLE/image.tar.zst" | docker load
           GOT=$(docker image inspect --format '{{.Id}}' opengym:test)
