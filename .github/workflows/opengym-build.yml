@@ -10,14 +10,12 @@
 name: opengym-build
 
 on:
-  # Every push builds, no path filter: the build is cheap and always valid.
-  # What republishes is decided inside the job by the scope step, which diffs
-  # the build inputs, not by the trigger.
+  # Every push builds, on any branch and any path: the build is cheap and always
+  # informative. What republishes is decided inside the job by the scope step,
+  # which requires master AND a diff in the build inputs.
   push:
-    branches: [master]
   # Every PR runs the build, no path filter: the master ruleset requires the
   # "build" status check, and a PR that produced no check would wait forever.
-  # The push filter below still decides what republishes.
   pull_request:
   # Manual run. `force_publish=true` marks the build as publishable even though
   # nothing changed: a dispatch run has no before-sha to diff. Without the input
@@ -85,6 +83,12 @@ jobs:
               echo "dispatch without force_publish, so build and smoke run but nothing is published"
               echo "publish=false" >> "$GITHUB_OUTPUT"
             fi
+            exit 0
+          fi
+          # A feature branch runs builds and smoke tests but only master publishes
+          if [ "$GITHUB_REF" != "refs/heads/master" ]; then
+            echo "not master, so build and smoke only"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]       \

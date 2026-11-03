@@ -111,7 +111,7 @@ cmd_apply() {
     echo "s6-overlay -> $s6 with refreshed checksums"
   fi
   mv "$tmpnotice" "$IMAGES/NOTICE.md"
-  echo "opengym -> $app (published as $app)"
+  echo "opengym -> $app"
 }
 
 cmd_check() {

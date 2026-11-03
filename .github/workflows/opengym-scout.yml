@@ -45,7 +45,7 @@ jobs:
 
       - name: Report when there is no newer release
         if: steps.check.outputs.update_available != 'true'
-        run: echo "no newer release — ${{ steps.check.outputs.reason }}"
+        run: echo "${{ steps.check.outputs.reason }}"
 
       - name: Pull request run
         if: github.event_name == 'pull_request'
