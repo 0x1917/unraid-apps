@@ -1,0 +1,173 @@
+# Build and smoke-test the opengym image.
+#
+# This workflow NEVER writes to the registry. When the change set touches a
+# build input it exports the tested image as a compressed tarball artifact plus
+# a small metadata file, and `opengym-publish.yml` picks that up via
+# `workflow_run`. Secrets stay in the publish workflow.
+#
+# Version comes from `ARG UPSTREAM_VERSION` in the Dockerfile.
+
+name: opengym-build
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - images/opengym/**
+      - .github/workflows/opengym-build.yml
+      - .github/workflows/opengym-publish.yml
+  pull_request:
+    paths:
+      - images/opengym/**
+      - .github/workflows/opengym-build.yml
+      - .github/workflows/opengym-publish.yml
+  # Manual run. `force_publish=true` marks the build as publishable even though
+  # nothing changed: a dispatch run has no before-sha to diff. Without the input
+  # it builds and smokes only, which is the safe default.
+  workflow_dispatch:
+    inputs:
+      force_publish:
+        description: "Manually publish image"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write      # upload the image artifact for the publish workflow
+
+# One build at a time per ref: two pushes in quick succession would otherwise
+# race the artifact and, downstream, the :latest tag.
+concurrency:
+  group: opengym-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: 0x1917/opengym
+  # Tarball size is ~265 MB compressed; 3 days is enough for the chained run.
+  ARTIFACT: opengym-image
+  RETENTION: 3
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # A hung buildx step otherwise burns the 6h default; a healthy run is ~1 min.
+    timeout-minutes: 25
+    outputs:
+      publish: ${{ steps.scope.outputs.publish }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The scope check below diffs github.event.before against HEAD.
+          fetch-depth: 0
+
+      # A push that touches only the workflow must still RUN but it must not
+      # publish. Anything under images/opengym counts as a build input except
+      # the two paths that never reach the image (the CI scripts and this
+      # README), so a new file defaults to publishing rather than silently
+      # skipping.
+      - name: Determine if image was updated
+        id: scope
+        if: github.event_name != 'pull_request'
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+          FORCE: ${{ inputs.force_publish }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$FORCE" = "true" ]; then
+              echo "forced by the dispatch input, packaging for publish"
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "dispatch without force_publish, so build and smoke run but nothing is published"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]       \
+             || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null            \
+             || ! git diff --quiet "$BEFORE" "$GITHUB_SHA" -- images/opengym  \
+                  ':(exclude)images/opengym/scripts' ':(exclude)images/opengym/README.md'; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no build input changed, so build and smoke run but nothing is published"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve version from the Dockerfile
+        id: meta
+        run: |
+          UP=$(grep -m1 '^ARG UPSTREAM_VERSION=' images/opengym/Dockerfile | cut -d= -f2)
+          test -n "$UP"
+          # Tag = the bare upstream release; the Dockerfile derives the same
+          # value for the OCI version label.
+          echo "version=$UP" >> "$GITHUB_OUTPUT"
+          echo "api=ghcr.io/duartesantos8/opengym-api:$UP" >> "$GITHUB_OUTPUT"
+          # git-formatted (%cI) so the value is always well-formed, never
+          # interpolate commit metadata into `with:` blocks directly.
+          echo "build_date=$(git log -1 --format=%cI)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Only feeds the provenance label: the Dockerfile itself pins by tag.
+      - name: Resolve base image digest
+        id: digest
+        run: echo "base_digest=$(docker buildx imagetools inspect ${{ steps.meta.outputs.api }} --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: images/opengym
+          load: true
+          tags: opengym:test
+          cache-from: |
+            type=registry,ref=${{ env.IMAGE }}:buildcache
+            type=registry,ref=${{ env.IMAGE }}:latest
+          # This job holds no registry credentials, so the cache export goes to
+          # the Actions cache. Reading the registry cache above is anonymous.
+          cache-to: type=gha,mode=max
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ steps.meta.outputs.build_date }}
+            BASE_DIGEST=${{ steps.digest.outputs.base_digest }}
+
+      - name: Run smoke test
+        run: bash images/opengym/scripts/smoke-test.sh opengym:test
+
+      # The bundle is written on every run and always carries meta.json, so the
+      # chained publish workflow never has to guess why an artifact is missing.
+      # The tarball, which is the expensive part (~265 MB compressed), only
+      # exists when this build is meant to be published.
+      - name: Write the bundle manifest
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          PUBLISH: ${{ steps.scope.outputs.publish }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bundle"
+          ID=$(docker image inspect --format '{{.Id}}' opengym:test)
+          jq -n --arg v "$VERSION" --arg id "$ID" --arg img "$IMAGE" \
+                --arg sha "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
+                --argjson pub "${PUBLISH:-false}" \
+                '{version:$v, image_id:$id, image:$img, commit:$sha, build_run:$run, publish:$pub}' \
+                > "$RUNNER_TEMP/bundle/meta.json"
+          cat "$RUNNER_TEMP/bundle/meta.json"
+
+      # Hand the EXACT image that just passed the gate to the publish workflow.
+      # The image ID in meta.json lets the publish side prove the bytes it
+      # loaded are the bytes tested here.
+      - name: Package the tested image
+        if: steps.scope.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          docker save opengym:test | zstd -T0 -3 -q -o "$RUNNER_TEMP/bundle/image.tar.zst"
+          ls -lh "$RUNNER_TEMP/bundle"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: ${{ runner.temp }}/bundle
+          retention-days: ${{ env.RETENTION }}
+          # The tarball is already compressed by zstd.
+          compression-level: 0
