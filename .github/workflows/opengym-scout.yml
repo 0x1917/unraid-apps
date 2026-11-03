@@ -10,7 +10,7 @@
 # repository's GITHUB_TOKEN does not start other workflow runs (deliberate, to
 # stop recursion), so the `on: pull_request` job will not appear on it; the
 # evidence is this run's log and the PR body.
-name: upstream-releases
+name: opengym-scout
 
 on:
   schedule:
@@ -22,14 +22,14 @@ on:
   pull_request:
     paths:
       - images/opengym/scripts/upstream-check.sh
-      - .github/workflows/upstream-check.yml
+      - .github/workflows/opengym-scout.yml
 
 permissions:
   contents: write        # push the update branch
   pull-requests: write   # open the PR
 
 concurrency:
-  group: upstream-check
+  group: opengym-scout
   cancel-in-progress: false
 
 jobs:
@@ -45,13 +45,13 @@ jobs:
 
       - name: Report when there is no newer release
         if: steps.check.outputs.update_available != 'true'
+        run: echo "no newer release — ${{ steps.check.outputs.reason }}"
 
       - name: Pull request run
         if: github.event_name == 'pull_request'
         run: |
           echo "checker-only run: apply, build, smoke and PR creation are skipped"
           echo "this proves the script parses and can query both upstreams"
-        run: echo "no newer release — ${{ steps.check.outputs.reason }}"
 
       - uses: docker/setup-buildx-action@v4
         if: steps.check.outputs.update_available == 'true' && github.event_name != 'pull_request'

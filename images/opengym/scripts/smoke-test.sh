@@ -81,10 +81,20 @@ pass "API does not run as root"
 
 # Licence texts must travel with the image: a dropped COPY builds and boots
 # fine, so nothing else in this gate would notice their absence.
+# Liveness first: a container that died mid-gate makes every later exec fail,
+# which then reads like a content failure. Say which it was.
+[ "$(docker inspect --format '{{.State.Running}}' "$NAME" 2>/dev/null)" = "true" ] \
+  || die "container stopped during the gate (docker logs above)"
 docker exec "$NAME" sh -c 'test -s /usr/share/opengym/LICENSE && test -s /usr/share/opengym/NOTICE.md' \
   || die "licence files missing from the image"
-docker exec "$NAME" sh -c 'head -c 200 /usr/share/opengym/LICENSE' \
-  | grep -q 'GNU AFFERO GENERAL PUBLIC LICENSE' || die "LICENSE is not the AGPL text"
+# Capture then match, never pipe: with pipefail a failing exec is
+# indistinguishable from a non-matching grep.
+LIC=$(docker exec "$NAME" sh -c 'head -c 200 /usr/share/opengym/LICENSE') \
+  || die "could not read LICENSE from the image (exec failed)"
+case "$LIC" in
+  *"GNU AFFERO GENERAL PUBLIC LICENSE"*) ;;
+  *) die "LICENSE is not the AGPL text (first bytes: ${LIC:0:80})" ;;
+esac
 docker exec "$NAME" grep -q 'Gym visual' /usr/share/opengym/NOTICE.md \
   || die "NOTICE.md lacks the media terms"
 pass "licence texts ship in the image (AGPL + third-party notice)"

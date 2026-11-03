@@ -164,7 +164,7 @@ What matters:
 
 ### Upstream releases
 
-`.github/workflows/upstream-check.yml` runs daily, on demand, and on pull
+`opengym-scout` (`.github/workflows/opengym-scout.yml`) runs daily, on demand, and on pull
 requests that touch the checker script or that workflow (check only, since a PR
 has no write token). It compares two upstreams: OpenGym's images (`ARG UPSTREAM_VERSION`) and s6-overlay
 (`ARG S6_OVERLAY_VERSION` plus four tarball checksums, re-read from the release's

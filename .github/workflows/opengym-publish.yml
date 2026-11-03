@@ -37,6 +37,9 @@ concurrency:
 env:
   IMAGE: 0x1917/opengym
   ARTIFACT: opengym-image
+  # Outside the checkout on purpose: actions/checkout cleans the working tree,
+  # which would delete the downloaded bundle.
+  BUNDLE: ${{ runner.temp }}/bundle
 
 jobs:
   publish:
@@ -78,15 +81,10 @@ jobs:
           echo "publishing build run $RUN_ID ($SHA)"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ steps.target.outputs.sha }}
-          fetch-depth: 0   # the tag step pushes tags and reads the remote's
-
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ env.ARTIFACT }}
-          path: bundle
+          path: ${{ env.BUNDLE }}
           run-id: ${{ env.RUN_ID }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -96,22 +94,31 @@ jobs:
         id: meta
         run: |
           set -euo pipefail
-          test -s bundle/meta.json || { echo "no meta.json in the artifact" >&2; exit 1; }
-          cat bundle/meta.json
-          echo "version=$(jq -r .version bundle/meta.json)" >> "$GITHUB_OUTPUT"
-          echo "image_id=$(jq -r .image_id bundle/meta.json)" >> "$GITHUB_OUTPUT"
-          echo "publish=$(jq -r .publish bundle/meta.json)" >> "$GITHUB_OUTPUT"
+          test -s "$BUNDLE/meta.json" || { echo "no meta.json in the artifact" >&2; exit 1; }
+          cat "$BUNDLE/meta.json"
+          echo "version=$(jq -r .version "$BUNDLE/meta.json")" >> "$GITHUB_OUTPUT"
+          echo "image_id=$(jq -r .image_id "$BUNDLE/meta.json")" >> "$GITHUB_OUTPUT"
+          echo "publish=$(jq -r .publish "$BUNDLE/meta.json")" >> "$GITHUB_OUTPUT"
 
       - name: Nothing to publish
         if: steps.meta.outputs.publish != 'true'
         run: echo "that build was not marked for publishing, so this run stops here"
 
+      # Only needed when there is something to push: the smoke script and the
+      # tag step both live in the repo. Placed after the manifest read so a
+      # non-publish build costs one API call and a 381-byte download.
+      - uses: actions/checkout@v7
+        if: steps.meta.outputs.publish == 'true'
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+          fetch-depth: 0   # the tag step pushes tags and reads the remote's
+
       - name: Load the tested image
         if: steps.meta.outputs.publish == 'true'
         run: |
           set -euo pipefail
-          test -s bundle/image.tar.zst || { echo "artifact has no image tarball" >&2; exit 1; }
-          zstd -dc bundle/image.tar.zst | docker load
+          test -s "$BUNDLE/image.tar.zst" || { echo "artifact has no image tarball" >&2; exit 1; }
+          zstd -dc "$BUNDLE/image.tar.zst" | docker load
           GOT=$(docker image inspect --format '{{.Id}}' opengym:test)
           WANT="${{ steps.meta.outputs.image_id }}"
           echo "loaded: $GOT"
@@ -126,7 +133,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: steps.meta.outputs.publish == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: "0x1917"
           password: ${{ secrets.DOCKERHUB_TOKEN }}
