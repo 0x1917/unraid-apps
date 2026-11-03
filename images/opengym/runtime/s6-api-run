@@ -8,7 +8,7 @@
 # brings is handed to its unprivileged user here. A baked marker rather than
 # an env var on purpose: an env switch could be flipped at run time and would
 # silently undo the privilege drop.
-cd /app
+cd /app || exit 1
 if [ -f /etc/opengym/coach-enabled ]; then
 	# A bound auth dir arrives with the host owner (root or nobody:users);
 	# hand it to the layer's unprivileged user before the server starts.

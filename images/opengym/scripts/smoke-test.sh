@@ -39,8 +39,7 @@ start() {  # $1 = BASE_PATH
   docker run -d --name "$NAME" -p "127.0.0.1:$PORT:80" -v "$DATA":/data \
     -e ORIGIN="$ORIGIN" -e RP_ID=127.0.0.1 -e BASE_PATH="$prefix" \
     -e PASSWORD_LOGIN=true -e FIRST_USER_ADMIN=true "$IMAGE" >/dev/null
-  local i
-  for i in $(seq 1 45); do
+  for _ in $(seq 1 45); do
     curl -fsS -o /dev/null "$ORIGIN$prefix/api/health" 2>/dev/null && return 0
     [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = true ] \
       || die "container exited during startup (BASE_PATH='$prefix')"
