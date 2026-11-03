@@ -10,12 +10,19 @@
 # repository's GITHUB_TOKEN does not start other workflow runs (deliberate, to
 # stop recursion), so the `on: pull_request` job will not appear on it; the
 # evidence is this run's log and the PR body.
-name: upstream releases
+name: upstream-releases
 
 on:
   schedule:
     - cron: "23 4 * * *"   # daily; GitHub may delay scheduled runs under load
   workflow_dispatch:
+  # A change to the watcher or to this workflow runs before merge, but only the
+  # read-only `check` step: a PR has no write token and must never push a branch
+  # or open a pull request.
+  pull_request:
+    paths:
+      - images/opengym/scripts/upstream-check.sh
+      - .github/workflows/upstream-check.yml
 
 permissions:
   contents: write        # push the update branch
@@ -38,20 +45,26 @@ jobs:
 
       - name: Report when there is no newer release
         if: steps.check.outputs.update_available != 'true'
+
+      - name: Pull request run
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "checker-only run: apply, build, smoke and PR creation are skipped"
+          echo "this proves the script parses and can query both upstreams"
         run: echo "no newer release — ${{ steps.check.outputs.reason }}"
 
       - uses: docker/setup-buildx-action@v4
-        if: steps.check.outputs.update_available == 'true'
+        if: steps.check.outputs.update_available == 'true' && github.event_name != 'pull_request'
 
       - name: Apply the update
-        if: steps.check.outputs.update_available == 'true'
+        if: steps.check.outputs.update_available == 'true' && github.event_name != 'pull_request'
         run: |
           bash images/opengym/scripts/upstream-check.sh apply \
             "${{ steps.check.outputs.app_latest }}"           \
             "${{ steps.check.outputs.s6_latest }}"
 
       - name: Build the updated tree
-        if: steps.check.outputs.update_available == 'true'
+        if: steps.check.outputs.update_available == 'true' && github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           API="ghcr.io/duartesantos8/opengym-api:${{ steps.check.outputs.app_latest }}"
@@ -64,11 +77,11 @@ jobs:
 
       - name: Smoke test the updated tree
         id: smoke
-        if: steps.check.outputs.update_available == 'true'
+        if: steps.check.outputs.update_available == 'true' && github.event_name != 'pull_request'
         run: bash images/opengym/scripts/smoke-test.sh opengym:test
 
       - name: Open the pull request
-        if: success() && steps.check.outputs.update_available == 'true'
+        if: success() && steps.check.outputs.update_available == 'true' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REASON: ${{ steps.check.outputs.reason }}

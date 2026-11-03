@@ -104,42 +104,69 @@ TLS and reverse-proxy behaviour, and anything requiring real user data.
 
 ## CI
 
-`.github/workflows/opengym.yml`.
+Two workflows, chained. Neither one can do the other's job.
 
-| Event                                                         | Runs                                  |
-| ------------------------------------------------------------- | ------------------------------------- |
-| push to `master` touching `images/opengym/**` or the workflow | build, smoke, publish                 |
-| pull request touching the same paths                          | build and smoke, never publishes      |
-| manual dispatch                                               | same as a push                        |
+| Workflow                   | Trigger                                          | Does                                                        |
+| -------------------------- | ------------------------------------------------ | ----------------------------------------------------------- |
+| `opengym-build.yml`        | push to `master`, PR, dispatch on the same paths | build, smoke test, and package the image as an artifact     |
+| `opengym-publish.yml`      | `workflow_run` after `opengym-build` completes   | download that run's artifact, verify it, push, tag          |
 
-Order: resolve the version from the Dockerfile, build once with `load: true`,
-run `smoke-test.sh`, retag and push, verify both tags carry one digest, then 
-tag the source commit.
+Build never touches the registry. Publish never builds. The image crosses the
+boundary as `docker save | zstd` plus a `meta.json` holding the image ID, the
+version and the publish decision.
+
+| Event                                                         | Build | Publish |
+| ------------------------------------------------------------- | ----- | ------- |
+| push to `master` touching a build input                       | yes   | yes     |
+| push to `master` touching only the workflows                  | yes   | no      |
+| pull request                                                  | yes   | no      |
+| dispatch, `force_publish=false`                               | yes   | no      |
+| dispatch, `force_publish=true`                                | yes   | yes     |
+
+Publish runs only from `master`, only after a green build, and only when the
+bundle says so. It then:
+
+1. loads the tarball and asserts the image ID matches the one in `meta.json`
+2. runs `smoke-test.sh` again on the loaded bytes, because they travelled
+   through an artifact store
+3. tags and pushes `<ver>` and `latest`, verifies both digests match
+4. creates the git source tag (`opengym-v<ver>`, or `-<n>` for a rebuild)
+
+Two manual paths:
+
+```sh
+# build now, publish on completion (one click, then the chain does the rest)
+gh workflow run opengym-build.yml --ref master -f force_publish=true
+
+# republish an existing build, no rebuild (run id from the Actions URL)
+gh workflow run opengym-publish.yml -f build_run_id=1234567890
+```
+
+The first marks the bundle publishable and lets the chained workflow push it. A
+dispatch without the input builds and smokes only. The second re-pushes the
+bytes from that build run: it no-ops the source tag if the commit already has one,
+and it still refuses if the bundle was never marked publishable.
 
 What matters:
 
-- **The published image is the tested image.** One build, then `docker tag` and
-  `docker push`. No second build, so published layers cannot differ from the
-  verified ones.
-- **Two tags per release:** `0x1917/opengym:<ver>` and `:latest`.
-- **Publishing is gated on the image inputs.** A push that changes no build input
-  still builds and smokes but publishes nothing. Everything under
-  `images/opengym/` counts as a build input except the CI scripts and this
-  README, so a new file defaults to publishing rather than silently skipping.
-  Credentials follow the same flag: the Hub login and the registry cache export
-  both run only when this push publishes. A non-publishing push exports no cache,
-  because its inputs did not change and `cache-from` already supplies every
-  layer. Gating the login alone is what 401'd those pushes once.
-- `timeout-minutes: 25`: a hung build fails instead of burning the 6 h default.
-- `concurrency: opengym-<ref>` with `cancel-in-progress: false`: two quick pushes
-  cannot race `:latest` or the source tag.
+- **The published image is the tested image.** The artifact carries the exact
+  image ID the gate ran against, and the publish side refuses to proceed if the
+  ID it loads differs.
+- **Publishing is gated on the image inputs.** Everything under `images/opengym/`
+  counts as a build input except the CI scripts and this README, so a new file
+  defaults to publishing rather than silently skipping.
+- `timeout-minutes: 25` on the build, 20 on the publish.
+- Serialised runs: `opengym-<ref>` for builds, `opengym-publish` for publishes,
+  both with `cancel-in-progress: false`, so `:latest` and the numbered tag series
+  never race.
 - Dependabot opens weekly PRs for new action majors; patch and minor updates
   arrive through the major tags.
 
 ### Upstream releases
 
-`.github/workflows/upstream-check.yml` runs daily and on demand against two
-upstreams: OpenGym's images (`ARG UPSTREAM_VERSION`) and s6-overlay
+`.github/workflows/upstream-check.yml` runs daily, on demand, and on pull
+requests that touch the checker script or that workflow (check only, since a PR
+has no write token). It compares two upstreams: OpenGym's images (`ARG UPSTREAM_VERSION`) and s6-overlay
 (`ARG S6_OVERLAY_VERSION` plus four tarball checksums, re-read from the release's
 own `.sha256` assets). The logic is
 `images/opengym/scripts/upstream-check.sh` (`check` and `apply`), which needs
@@ -148,7 +175,7 @@ exists it updates the ARGs, re-vendors `NOTICE.md`, builds, runs the smoke gate,
 and only then opens a PR. Nothing publishes until that PR is merged.
 
 - A PR opened with the built-in `GITHUB_TOKEN` starts no other workflow runs, so
-  the `opengym` CI does not appear on it. Build and smoke evidence lives in the
+  the `opengym` build workflow does not appear on it. Build and smoke evidence lives in the
   check run's log and the PR body.
 - The branch name carries the date and both versions, so a re-run on the same day
   is a no-op while the PR is open. Close it unmerged and the next run proposes it
