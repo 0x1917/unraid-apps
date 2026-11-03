@@ -14,6 +14,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 5
     commit-message:
       prefix: ci
+    # Minor and patch bumps land as one PR. Majors stay separate: they need
+    # their own review and their own revert. The old limit of 3 silently hid a
+    # fourth action that was still on Node 20.
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

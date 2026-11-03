@@ -17,6 +17,11 @@ on:
   # Every PR runs the build, no path filter: the master ruleset requires the
   # "build" status check, and a PR that produced no check would wait forever.
   pull_request:
+  # Weekly rebuild: exercises the pipeline and compares the upstream digest
+  # baked into the published image against what the tag resolves to now, so a
+  # re-pushed upstream tag is noticed instead of silently changing our bytes.
+  schedule:
+    - cron: "0 5 * * 1"
   # Manual run. `force_publish=true` marks the build as publishable even though
   # nothing changed: a dispatch run has no before-sha to diff. Without the input
   # it builds and smokes only, which is the safe default.
@@ -86,6 +91,11 @@ jobs:
             exit 0
           fi
           # A feature branch runs builds and smoke tests but only master publishes
+          if [ "$EVENT" = "schedule" ]; then
+            echo "scheduled run, so build and smoke only"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$GITHUB_REF" != "refs/heads/master" ]; then
             echo "not master, so build and smoke only"
             echo "publish=false" >> "$GITHUB_OUTPUT"
@@ -107,12 +117,14 @@ jobs:
           UP=$(grep -m1 '^ARG UPSTREAM_VERSION=' images/opengym/Dockerfile | cut -d= -f2)
           test -n "$UP"
           # Tag = the bare upstream release; the Dockerfile derives the same
-          # value for the OCI version label.
-          echo "version=$UP" >> "$GITHUB_OUTPUT"
-          echo "api=ghcr.io/duartesantos8/opengym-api:$UP" >> "$GITHUB_OUTPUT"
-          # git-formatted (%cI) so the value is always well-formed, never
-          # interpolate commit metadata into `with:` blocks directly.
-          echo "build_date=$(git log -1 --format=%cI)" >> "$GITHUB_OUTPUT"
+          # value for the OCI version label. build_date is git-formatted (%cI)
+          # so the value is always well-formed, never interpolate commit
+          # metadata into `with:` blocks directly.
+          {
+            echo "version=$UP"
+            echo "api=ghcr.io/duartesantos8/opengym-api:$UP"
+            echo "build_date=$(git log -1 --format=%cI)"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v4
 
@@ -141,10 +153,6 @@ jobs:
       - name: Run smoke test
         run: bash images/opengym/scripts/smoke-test.sh opengym:test
 
-      # The bundle is written on every run and always carries meta.json, so the
-      # chained publish workflow never has to guess why an artifact is missing.
-      # The tarball, which is the expensive part (~265 MB compressed), only
-      # exists when this build is meant to be published.
       - name: Write the bundle manifest
         env:
           VERSION: ${{ steps.meta.outputs.version }}

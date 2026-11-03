@@ -53,9 +53,9 @@ jobs:
     env:
       RUN_ID: ${{ github.event.workflow_run.id || inputs.build_run_id }}
     steps:
-      # The commit to tag is the BUILD RUN's head, not this workflow's sha: a
+      # The commit to tag is the BUILD RUN's head, not this workflow's SHA: a
       # manual re-publish names a build run, and its commit is what shipped.
-      # The sha is interpolated into a checkout `ref:` below, so it is validated
+      # The SHA is interpolated into a checkout `ref:` below, so it is validated
       # as a bare commit hash first.
       - name: Resolve and validate the target commit
         id: target
@@ -67,15 +67,26 @@ jobs:
           case "$RUN_ID" in
             *[!0-9]*|"") echo "not a run id: $RUN_ID" >&2; exit 1 ;;
           esac
-          SHA="$WR_SHA"
-          if [ -z "$SHA" ]; then
-            SHA=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .head_sha)
-          fi
+          # The run decides which commit we trust. Validate the RUN, not only
+          # the SHA: a manual dispatch can name any run id, including a build of
+          # a fork PR, whose code would then be checked out and executed here
+          # with a write token. Only master pushes and master dispatches pass.
+          RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")
+          BRANCH=$(printf '%s' "$RUN" | jq -r .head_branch)
+          EVENT=$(printf '%s' "$RUN" | jq -r .event)
+          SHA_J=$(printf '%s' "$RUN" | jq -r .head_sha)
+          case "$EVENT" in
+            push|workflow_dispatch) ;;
+            *) echo "build run $RUN_ID came from '$EVENT', refusing" >&2; exit 1 ;;
+          esac
+          [ "$BRANCH" = "master" ] || { echo "build run $RUN_ID is on '$BRANCH', not master" >&2; exit 1; }
+          SHA="$SHA_J"
+          [ -z "$WR_SHA" ] || [ "$WR_SHA" = "$SHA" ] || { echo "payload sha disagrees with the run" >&2; exit 1; }
           case "$SHA" in
             *[!0-9a-f]*|"") echo "not a commit sha: $SHA" >&2; exit 1 ;;
           esac
           [ "${#SHA}" -eq 40 ] || { echo "not a commit sha: $SHA" >&2; exit 1; }
-          echo "publishing build run $RUN_ID ($SHA)"
+          echo "publishing build run $RUN_ID ($SHA) from $EVENT on $BRANCH"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
       - uses: actions/download-artifact@v8
@@ -97,9 +108,11 @@ jobs:
           BUNDLE="$RUNNER_TEMP/bundle"
           test -s "$BUNDLE/meta.json" || { echo "no meta.json in the artifact" >&2; exit 1; }
           cat "$BUNDLE/meta.json"
-          echo "version=$(jq -r .version "$BUNDLE/meta.json")" >> "$GITHUB_OUTPUT"
-          echo "image_id=$(jq -r .image_id "$BUNDLE/meta.json")" >> "$GITHUB_OUTPUT"
-          echo "publish=$(jq -r .publish "$BUNDLE/meta.json")" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$(jq -r .version "$BUNDLE/meta.json")"
+            echo "image_id=$(jq -r .image_id "$BUNDLE/meta.json")"
+            echo "publish=$(jq -r .publish "$BUNDLE/meta.json")"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Nothing to publish
         if: steps.meta.outputs.publish != 'true'
@@ -112,7 +125,8 @@ jobs:
         if: steps.meta.outputs.publish == 'true'
         with:
           ref: ${{ steps.target.outputs.sha }}
-          fetch-depth: 0   # the tag step pushes tags and reads the remote's
+          fetch-depth: 0   # the tag step reads the remote's tags
+          persist-credentials: false
 
       - name: Load the tested image
         if: steps.meta.outputs.publish == 'true'
@@ -170,8 +184,12 @@ jobs:
         env:
           VERSION: ${{ steps.meta.outputs.version }}
           BUILD_RUN: ${{ env.RUN_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # Checkout kept no credentials, so the push authenticates here, for
+          # this step only, after the image is already published.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           BASE="opengym-v${VERSION}"
           if git tag --points-at HEAD | grep -qF "$BASE"; then
             echo "this commit already carries a $BASE tag, nothing to do"
