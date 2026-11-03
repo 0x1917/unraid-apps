@@ -67,20 +67,20 @@ ARG S6_OVERLAY_SHA256=e6befcc96a437a3831386ecfc51808c5d3e939dc5fe3c02ae9284599e8
 ARG S6_SYMLINKS_ARCH_SHA256=6251226709efc0c88800a8c140404d93b391e1b4051ef50fa0e8aac1fdcf738c
 ARG S6_SYMLINKS_NOARCH_SHA256=a215675c375aca9efecde3065df22b19fb8dcdc1362566931c6b5e778099a0fb
 
-LABEL org.opencontainers.image.authors="0x1917 (https://github.com/0x1917)"                                                             \
-      org.opencontainers.image.title="opengym"                                                                                          \
-      org.opencontainers.image.description="Self-hosted gym & body-weight tracker in a single container with s6-overlay supervision."   \
-      org.opencontainers.image.source="https://github.com/0x1917/unraid-apps"                                                           \
-      org.opencontainers.image.url="https://opengym.ch"                                                                                 \
-      org.opencontainers.image.documentation="https://github.com/0x1917/unraid-apps/blob/master/images/opengym/README.md"               \
-      org.opencontainers.image.licenses="AGPL-3.0-or-later"                                                                             \
-      org.opencontainers.image.version="${OPENGYM_VERSION}"                                                                             \
-      org.opencontainers.image.revision="${VCS_REF}"                                                                                    \
-      org.opencontainers.image.created="${BUILD_DATE}"                                                                                  \
-      org.opencontainers.image.base.name="ghcr.io/duartesantos8/opengym-api"                                                            \
-      org.opencontainers.image.base.digest="${BASE_DIGEST}"                                                                             \
-      io.opengym.upstream.version="${UPSTREAM_VERSION}"                                                                                 \
-      io.opengym.upstream.api="${OPENGYM_API_IMAGE}"                                                                                    \
+LABEL org.opencontainers.image.authors="0x1917 (https://github.com/0x1917)"                                                  \
+      org.opencontainers.image.title="opengym"                                                                               \
+      org.opencontainers.image.description="Open-source workout & body-weight tracker."                                      \
+      org.opencontainers.image.source="https://github.com/0x1917/unraid-apps"                                                \
+      org.opencontainers.image.url="https://opengym.ch"                                                                      \
+      org.opencontainers.image.documentation="https://github.com/0x1917/unraid-apps/blob/master/images/opengym/README.md"    \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"                                                                  \
+      org.opencontainers.image.version="${OPENGYM_VERSION}"                                                                  \
+      org.opencontainers.image.revision="${VCS_REF}"                                                                         \
+      org.opencontainers.image.created="${BUILD_DATE}"                                                                       \
+      org.opencontainers.image.base.name="ghcr.io/duartesantos8/opengym-api"                                                 \
+      org.opencontainers.image.base.digest="${BASE_DIGEST}"                                                                  \
+      io.opengym.upstream.version="${UPSTREAM_VERSION}"                                                                      \
+      io.opengym.upstream.api="${OPENGYM_API_IMAGE}"                                                                         \
       io.opengym.upstream.web="${OPENGYM_WEB_IMAGE}"
 
 # apk upgrade first, as upstream's Dockerfiles do; the header links carry the reason.
@@ -119,8 +119,8 @@ RUN echo "${S6_NOARCH_SHA256}  /tmp/s6-overlay-noarch.tar.xz" | sha256sum -c -  
 # nginx: the account the alpine nginx package creates; keeping it distinct from
 # opengym means a compromised web tier cannot read /data (users, passkeys, session
 # secret). Only the api account touches /data.
-RUN addgroup -g 100 users 2>/dev/null || true             \
- && adduser -D -H -u 99 -G users -s /sbin/nologin opengym \
+RUN addgroup -g 100 users 2>/dev/null || true              \
+ && adduser -D -H -u 99 -G users -s /sbin/nologin opengym  \
  && getent passwd nginx >/dev/null
 
 # The built SPA and the exercise media, both already at their final paths inside
