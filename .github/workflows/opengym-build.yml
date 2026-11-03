@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       force_publish:
-        description: "Manually publish image"
+        description: "Force publish image"
         type: boolean
         default: false
 
