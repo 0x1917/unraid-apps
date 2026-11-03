@@ -122,8 +122,8 @@ jobs:
           {
             printf 'Automated upstream release update - built and smoke-tested by [this run](%s/%s/actions/runs/%s).\n\n' \
               "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
-            [ "$APP_FROM" = "$APP_TO" ] || printf -- "- OpenGym: \`%s\` → \`%s\`\n" "$APP_FROM" "$APP_TO"
-            [ "$S6_FROM" = "$S6_TO" ] || printf -- "- s6-overlay: \`%s\` → \`%s\`\n" "$S6_FROM" "$S6_TO"
+            [ "$APP_FROM" = "$APP_TO" ] || printf -- "- OpenGym: \`%s\` → \`%s\` ([changelog](https://github.com/DuarteSantos8/openGym/releases/tag/v%s))\n" "$APP_FROM" "$APP_TO" "$APP_TO"
+            [ "$S6_FROM" = "$S6_TO" ] || printf -- "- s6-overlay: \`%s\` → \`%s\` ([changelog](https://github.com/just-containers/s6-overlay/releases/tag/v%s))\n" "$S6_FROM" "$S6_TO" "$S6_TO"
             printf '\nChanges in this branch: %s.\n' "$CHANGES"
             printf "\`LICENSE\` is ours and only fails this job if the upstream license stops being the AGPL.\n\n"
             printf "**The smoke gate (\`images/opengym/scripts/smoke-test.sh\`) passed on the built image before this PR was opened.** "
