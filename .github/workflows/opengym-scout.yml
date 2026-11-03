@@ -101,7 +101,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add images/opengym/Dockerfile images/opengym/NOTICE.md
-          git commit -m "opengym: upstream update (${REASON})"
+          git commit -m "Bump ${REASON}"
           git push origin "$BRANCH"
 
           cat > /tmp/pr-body.md <<BODY
