@@ -101,30 +101,37 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add images/opengym/Dockerfile images/opengym/NOTICE.md
-          git commit -m "Bump ${REASON}"
+          git commit -m "Bump: ${REASON}"
           git push origin "$BRANCH"
 
-          cat > /tmp/pr-body.md <<BODY
-          Automated upstream release update, built and smoke-tested by [this run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}).
+          # Title and body name only what actually changed: an s6-only bump
+          # must not claim the app moved, and vice versa.
+          PARTS=""
+          [ "$APP_FROM" = "$APP_TO" ] || PARTS="OpenGym ${APP_FROM} → ${APP_TO}"
+          [ "$S6_FROM" = "$S6_TO" ] || PARTS="${PARTS:+$PARTS and }s6 ${S6_FROM} → ${S6_TO}"
+          TITLE="Bump: $PARTS"
 
-          - openGym: \`${APP_FROM}\` -> \`${APP_TO}\`
-          - s6-overlay: \`${S6_FROM}\` -> \`${S6_TO}\`
-          - publishes as \`${APP_TO}\` + \`latest\`
+          CHANGES=""
+          if [ "$APP_FROM" != "$APP_TO" ]; then
+            CHANGES="\`ARG UPSTREAM_VERSION\` and \`NOTICE.md\` re-vendored from the upstream tag"
+          fi
+          if [ "$S6_FROM" != "$S6_TO" ]; then
+            CHANGES="${CHANGES:+$CHANGES; }the s6-overlay version and its four sha256 pins (fetched from the \`.sha256\` assets of the release)"
+          fi
 
-          Changes in this branch: \`ARG UPSTREAM_VERSION\`, the s6-overlay version and
-          its four sha256 pins (fetched from the release's own \`.sha256\` assets),
-          and \`NOTICE.md\` re-vendored from upstream's tag. \`LICENSE\` is ours and
-          only fails this job if upstream's licence stops being the AGPL.
+          {
+            printf 'Automated upstream release update - built and smoke-tested by [this run](%s/%s/actions/runs/%s).\n\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            [ "$APP_FROM" = "$APP_TO" ] || printf -- "- OpenGym: \`%s\` → \`%s\`\n" "$APP_FROM" "$APP_TO"
+            [ "$S6_FROM" = "$S6_TO" ] || printf -- "- s6-overlay: \`%s\` → \`%s\`\n" "$S6_FROM" "$S6_TO"
+            printf 'Changes in this branch: %s.\n' "$CHANGES"
+            printf "\`LICENSE\` is ours and only fails this job if the upstream license stops being the AGPL.\n\n"
+            printf "**The smoke gate (\`images/opengym/scripts/smoke-test.sh\`) passed on the built image before this PR was opened.** "
+            printf "Review the upstream release notes, then merge. The \`opengym-build\`/\`opengym-publish\` chain builds, tests, and publishes \`%s\` + \`latest\` from master. " "$APP_TO"
+            printf 'Recreate the container on Unraid afterwards to actually run it.\n\n'
+            printf 'Closing this PR without merging is a fine answer; the next scheduled run will re-propose it only if the branch is gone.\n'
+          } > /tmp/pr-body.md
 
-          **The smoke gate (\`images/opengym/scripts/smoke-test.sh\`) passed on the built
-          image before this PR was opened.** Review upstream's release notes, then
-          merge — the \`opengym\` workflow builds, tests and publishes
-          \`${APP_TO}\` + \`latest\` from master. Recreate the container on Unraid
-          afterwards to actually run it.
-
-          Closing this PR without merging is a fine answer; the next scheduled run
-          will re-propose it only if the branch is gone.
-          BODY
           gh pr create --base "$BASE" --head "$BRANCH" \
-            --title "opengym: upstream update — ${REASON} (${APP_TO})" \
+            --title "$TITLE" \
             --body-file /tmp/pr-body.md
