@@ -24,7 +24,7 @@
   <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-templates/master/assets/opengym/plan.png</Screenshot>
   <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-templates/master/assets/opengym/stats.png</Screenshot>
   <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-templates/master/assets/opengym/workout.png</Screenshot>
-  <License>GNU AGPL-3.0-or-later covers this container and the OpenGym application. Bundled exercise media is third-party and governed by its own terms - see NOTICE.md.</License>
+  <License>GNU AGPL v3 covers this image and the OpenGym application. For the bundled exercise media, refer to NOTICE.md.</License>
   <ExtraParams/>
   <PostArgs/>
   <Config Name="Web UI Port" Target="80" Default="8310" Mode="tcp" Description="Published HTTP port." Type="Port" Display="always" Required="true" Mask="false">8310</Config>
