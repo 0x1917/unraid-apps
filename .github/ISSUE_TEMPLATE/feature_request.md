@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an improvement or a new image, template, or plugin
+about: Suggest a new template or an improvement to one
 title: ""
 labels: enhancement
 assignees: ""

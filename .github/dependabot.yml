@@ -5,9 +5,8 @@
 # that tells us a new major exists: a weekly PR. Close it if a major is not
 # wanted yet; the reminder costs nothing.
 #
-# No `docker` ecosystem entry: the image refs are ARG variables
-# (FROM ${OPENGYM_API_IMAGE}), and Dependabot cannot resolve those to a
-# registry tag. Upstream version bumps are handled by ARG UPSTREAM_VERSION.
+# No `docker` ecosystem entry: this repository holds no image build. The image
+# repositories carry their own copy of this file.
 version: 2
 updates:
   - package-ecosystem: github-actions

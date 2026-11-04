@@ -1,26 +1,26 @@
 ---
 name: Bug report
-about: Report a problem with an image, template, or plugin
+about: Report a problem with a template
 title: ""
 labels: bug
 assignees: ""
 ---
 
-**Affected artifact**
-<!-- Image, template, or plugin — name and version/tag, e.g. opengym:1.4.3 -->
+**Affected template**
+<!-- Template file and Unraid version, e.g. my-opengym.xml on 7.2.0 -->
 
 **Describe the bug**
 <!-- What happened? What did you expect instead? -->
 
 **To reproduce**
-<!-- Steps, commands, or config that trigger the problem -->
+<!-- Steps, settings, or commands that trigger the problem -->
 
 1.
 2.
 3.
 
 **Logs**
-<!-- Relevant container logs, build output, or error messages -->
+<!-- Container logs or error messages -->
 
 ```text
 
@@ -29,8 +29,8 @@ assignees: ""
 **Environment**
 
 - Unraid version:
-- Deployment method: <!-- template / docker run / compose -->
-- Reverse proxy in front: <!-- yes/no, which one -->
+- Container image version:
+- Compose or docker run in use: <!-- yes/no -->
 
 **Additional context**
 <!-- Anything else that helps -->

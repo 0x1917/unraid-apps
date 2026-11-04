@@ -1,11 +1,9 @@
-# Static checks that need no image: workflow schema (actionlint, which also
-# lints the shell inside `run:` blocks) and the shell scripts that ship inside
-# the container (shellcheck).
+# Static check that needs no image: workflow schema, via actionlint (which also
+# lints the shell inside `run:` blocks).
 #
-# One job, one check context (`lint`), two independent verdicts: each linter
-# runs to completion even when the other fails, and the final step reports both
-# before failing the job. That keeps the ruleset simple without hiding which
-# tool objected.
+# The image repositories run their own shellcheck gate over the scripts that
+# ship inside each container. This repository holds templates only, so there is
+# no shell here to lint.
 
 name: lint
 
@@ -28,38 +26,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Pinned by tag, same version as the local install. Embedded shellcheck
-      # stays ON: it reads the inline `run:` scripts, which the next step
-      # cannot see.
+      # Pinned by tag, same version as the local install.
       - name: actionlint
         id: actionlint
         continue-on-error: true
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12
 
-      - name: shellcheck
-        id: shellcheck
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          shellcheck --version >/dev/null || { echo "shellcheck not on the runner" >&2; exit 1; }
-          shellcheck -x -S warning              \
-            images/opengym/scripts/*.sh         \
-            images/opengym/runtime/*.sh         \
-            images/opengym/runtime/s6-api-run   \
-            images/opengym/runtime/s6-nginx-run
-
-      # Both linters have already run by now. Fail the job (and the `lint`
-      # check) if either objected, and say which.
       - name: Verdict
         if: always()
         env:
           ACTIONLINT: ${{ steps.actionlint.outcome }}
-          SHELLCHECK: ${{ steps.shellcheck.outcome }}
         run: |
           set -uo pipefail
           echo "actionlint: $ACTIONLINT"
-          echo "shellcheck: $SHELLCHECK"
           rc=0
           [ "$ACTIONLINT" = "success" ] || { echo "::error::actionlint failed"; rc=1; }
-          [ "$SHELLCHECK" = "success" ] || { echo "::error::shellcheck failed"; rc=1; }
           exit "$rc"

@@ -1,4 +1,4 @@
-<?xml version="1.0"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Container version="2">
   <Name>OpenGym</Name>
   <Repository>0x1917/opengym</Repository>
@@ -8,26 +8,25 @@
   <MyMAC/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/0x1917/unraid-apps/issues</Support>
+  <Support>https://github.com/0x1917/opengym/issues</Support>
   <Project>https://github.com/DuarteSantos8/openGym</Project>
   <ReadMe>https://github.com/DuarteSantos8/openGym/blob/main/docs/SELF_HOSTING.md</ReadMe>
   <Overview>Self-hosted workout &amp;amp; body-weight tracker: plan routines, log workouts (supersets, warm-ups, cardio), see which muscles are trained or detrained, import from FitNotes/Strong/Hevy, sign in with passkeys. Your data, your server.</Overview>
-  <Category>Productivity:</Category>
+  <Requires>Passkeys are the default login mechanism and they require an HTTPS domain to work properly. If you don't have an HTTPS domain, then enable PASSWORD_LOGIN for a standard user/password login.</Requires>
   <ExtraSearchTerms>gym strength weight workout lifting planner tracker routine bodyweight barbell dumbbell cardio exercise hiit train muscles fitness health</ExtraSearchTerms>
+  <Category>Productivity: Other:</Category>
   <WebUI>http://[IP]:[PORT:80]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/0x1917/unraid-apps/master/templates/my-opengym.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/0x1917/unraid-templates/master/templates/my-opengym.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/0x1917/unraid-templates/master/assets/opengym/icon.png</Icon>
+  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-templates/master/assets/opengym/hero.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-templates/master/assets/opengym/home.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-templates/master/assets/opengym/library.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-templates/master/assets/opengym/plan.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-templates/master/assets/opengym/stats.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-templates/master/assets/opengym/workout.png</Screenshot>
   <License>GNU AGPL-3.0-or-later covers this container and the OpenGym application. Bundled exercise media is third-party and governed by its own terms - see NOTICE.md.</License>
-  <Icon>https://raw.githubusercontent.com/0x1917/unraid-apps/refs/heads/master/assets/opengym/icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
-  <CPUset/>
-  <Requires>Passkeys are the default login mechanism and they require an HTTPS domain to work properly. If you don't have an HTTPS domain, then enable PASSWORD_LOGIN for a standard user/password login.</Requires>
-  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-apps/refs/heads/master/assets/opengym/hero.png</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-apps/refs/heads/master/assets/opengym/home.png</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-apps/refs/heads/master/assets/opengym/library.png</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-apps/refs/heads/master/assets/opengym/plan.png</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-apps/refs/heads/master/assets/opengym/stats.png</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/0x1917/unraid-apps/refs/heads/master/assets/opengym/workout.png</Screenshot>
   <Config Name="Web UI Port" Target="80" Default="8310" Mode="tcp" Description="Published HTTP port." Type="Port" Display="always" Required="true" Mask="false">8310</Config>
   <Config Name="App Data" Target="/data" Default="/mnt/user/appdata/opengym" Mode="rw" Description="Users, passkeys, session secrets, and media uploads." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/opengym</Config>
   <Config Name="Origin" Target="ORIGIN" Default="" Mode="" Description="The full address, scheme and port included, e.g. https://gym.example.com or http://192.168.1.1:8310. Must match the browser URL exactly otherwise sign-ups and sign-ins are refused due to origin-mismatch." Type="Variable" Display="always" Required="true" Mask="false"></Config>

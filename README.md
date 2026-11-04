@@ -1,27 +1,34 @@
-# unraid-apps
+# unraid-templates
 
-Custom Docker images, container templates, and plugins for Unraid.
+Container templates for Unraid.
+
+One XML file in `templates/` adds one container to the Unraid Docker tab. The
+file gives the image reference, the ports, the paths, the variables, and the
+artwork that Unraid shows. See [Install a template](#install-a-template).
 
 ## Layout
 
 ```
-images/<name>/     full build context per image (Dockerfile + context files)
-templates/         Unraid dockerMan XML templates
-plugins/           Unraid plugin sources
+templates/    one XML file for each container (my-<name>.xml)
 ```
 
-- **Build** runs on any Docker host:
-  `tar -C images/<name> -cf - . | ssh root@<docker-host> 'mkdir -p /tmp/<name> && tar -C /tmp/<name> -xf - && docker build -t <tag> /tmp/<name>'`
-- **Publish** pushes two tags — the version and `latest`:
-  `docker tag <name>:<ver> 0x1917/<name>:<ver> && docker tag <name>:<ver> 0x1917/<name>:latest && docker push 0x1917/<name> --all-tags`
-- **Deploy a template**: back up the flash copy, copy the XML over
-  `/boot/config/plugins/dockerMan/templates-user/<file>`, then Docker tab →
-  Edit → **Apply** (the Apply is the recreate).
-- Image names pin every component version.
+Icons and screenshots live in the image's own repository. Each XML points at
+them with a raw URL.
 
-## Inventory
+## Templates
 
-| Path             | Image                   | Template                   | Notes                                                                                                                                                                                                                                                           |
-| ---------------- | ----------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `images/opengym` | `0x1917/opengym:latest` | `templates/my-opengym.xml` | Single-container build of [openGym](https://github.com/DuarteSantos8/openGym) — Node API, nginx-served SPA and exercise media in one image, s6-overlay supervised, both services unprivileged. Details: [`images/opengym/README.md`](images/opengym/README.md). |
-                                                                   
+| Template                   | Image                   | Notes                                                                                  |
+| -------------------------- | ----------------------- | -------------------------------------------------------------------------------------- |
+| `templates/my-opengym.xml` | `0x1917/opengym:latest` | Workout and body-weight tracker ([OpenGym](https://github.com/DuarteSantos8/openGym)). | 
+
+### Install a template
+
+If the template is already on the Unraid Community Applications catalog, then just search
+for the template and install it through the CA plugin. Otherwise, it can be manually installed:
+
+1. On Unraid, copy the XML file into `/boot/config/plugins/dockerMan/templates-user/`
+2. Open the Docker tab
+3. Click **Add Container** 
+4. Select the template from the drop-down menu
+5. Fill in any required arguments
+6. Click **Apply**
