@@ -2,7 +2,6 @@
 <CommunityApplications>
   <Profile>Container templates for Unraid.</Profile>
   <WebPage>https://github.com/0x1917/unraid-templates</WebPage>
-  <Forum>https://forums.unraid.net/profile/297753-0x1917/</Forum>
   <Icon>https://raw.githubusercontent.com/0x1917/unraid-templates/main/icon.png</Icon>
   <DonateLink>https://buymeacoffee.com/0x1917</DonateLink>
   <DonateText>Appreciate my work? Show your support.</DonateText>
